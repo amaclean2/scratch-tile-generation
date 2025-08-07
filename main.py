@@ -1,7 +1,10 @@
 import asyncio
 from read_net_cdf import read_weather
-from s3_and_database_access import check_for_current_weather_files, download_netcdf_file, look_for_current_tiles
+from s3_and_database_access import (check_for_current_weather_files,
+  download_multiple_netcdf_files, look_for_current_tiles
+)
 import logging
+import os
 
 from utils import build_most_recent_file_stamp, build_s3_filename, create_local_netcdf_path
 
@@ -13,26 +16,53 @@ FORECAST_HOURS = 48
 TILE_SIZE = 256
     
 async def convert_weather_to_tiles():
-  """Convert weather data to tiles"""
   current_timestamp = build_most_recent_file_stamp()
   
-  # Test with just the first forecast hour
-  i = 0
-  forecast_hour = str(i + 1).zfill(2)
+  # Define which forecast hours you want to process
+  # For now, let's do first few hours - you can expand this
+  forecast_hours = ['01']  # Adjust as needed
+  max_concurrent_downloads = int(os.getenv('MAX_CONCURRENT_DOWNLOADS', 2))
   
-  s3_netcdf_file = build_s3_filename(current_timestamp, forecast_hour)
-  filename = s3_netcdf_file.split('/')[-1]
-  local_netcdf_path = create_local_netcdf_path(filename)
+  logger.info(f"Processing {len(forecast_hours)} forecast hours with max {max_concurrent_downloads} concurrent downloads")
   
-  # Download the file
-  await download_netcdf_file(s3_netcdf_file, local_netcdf_path)
+  # Download multiple files in parallel (with concurrency limit)
+  download_tasks = []
+  for forecast_hour in forecast_hours:
+    s3_netcdf_file = build_s3_filename(current_timestamp, forecast_hour)
+    filename = s3_netcdf_file.split('/')[-1]
+    local_netcdf_path = create_local_netcdf_path(filename)
+    
+    download_tasks.append((s3_netcdf_file, local_netcdf_path, forecast_hour))
   
-  # Read the weather data
-  await read_weather(local_netcdf_path)
-  
-  logger.info("Successfully read weather data")
-  return True
+  # Download files with concurrency limit
+  downloaded_files = await download_multiple_netcdf_files(download_tasks)
 
+  # Process each downloaded file
+  for local_path, forecast_hour in downloaded_files:
+    logger.info(f"Processing forecast hour {forecast_hour}")
+    
+    # Read weather data
+    weather_data = await read_weather(local_path)
+    
+    if weather_data:
+      logger.info(f"Successfully read {len(weather_data)} data points for hour {forecast_hour}")
+      
+      # TODO: Generate tiles here using weather_data
+      # processor = WeatherDataProcessor(weather_data)
+      # for each tile: generate_tile_optimized(zoom, x, y, processor, variable)
+        
+    else:
+      logger.warning(f"No weather data for forecast hour {forecast_hour}")
+    
+    # Clean up the NetCDF file after processing
+    try:
+      os.remove(local_path)
+      logger.info(f"Cleaned up {local_path}")
+    except Exception as e:
+      logger.warning(f"Could not remove {local_path}: {e}")
+  
+  logger.info("Successfully processed all weather data")
+  return True
 
 
 async def cleanup():

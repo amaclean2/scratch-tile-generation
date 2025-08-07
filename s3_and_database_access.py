@@ -1,5 +1,6 @@
 from utils import build_most_recent_file_stamp, build_s3_filename
 from pymongo import MongoClient
+import asyncio
 
 import logging
 import boto3
@@ -66,27 +67,49 @@ async def check_for_current_weather_files():
     logger.error(f"Error checking for weather files: {error}")
     raise
 
-async def download_netcdf_file(s3_key, local_path):
-  """Download NetCDF file from S3"""
-  try:
+async def download_multiple_netcdf_files(download_tasks):
+  max_concurrent_downloads = int(os.getenv('MAX_CONCURRENT_DOWNLOADS', 2))
+  semaphore = asyncio.Semaphore(max_concurrent_downloads)
+
+  tasks = [download_netcdf_file(s3_key, local_path, forecast_hour, semaphore) 
+    for s3_key, local_path, forecast_hour in download_tasks]
+  
+  # Wait for all downloads to complete
+  results = await asyncio.gather(*tasks)
+  
+  # Return only successful downloads
+  return [result for result in results if result is not None]
+
+async def download_netcdf_file(s3_key, local_path, forecast_hour, semaphore):
+  async with semaphore:
     # Ensure directory exists
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
     if os.path.exists(local_path):
       logger.info(f"File already exists: {local_path}")
-      return True
-    
-    logger.info(f"Downloading: {s3_key} -> {local_path}")
-    
-    s3_client.download_file(
-      os.getenv('S3_WEATHER_BUCKET', 'paladinoutputs'),
-      s3_key,
-      local_path
-    )
-    
-    logger.info(f"Downloaded: {s3_key}")
-    return True
-      
-  except Exception as error:
-    logger.error(f"Failed to download {s3_key}: {error}")
-    raise
+      success = True
+    else:
+      try:
+        logger.info(f"Downloading: {s3_key} -> {local_path}")
+        
+        # Run the sync S3 download in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+          None,
+          s3_client.download_file,
+          os.getenv('S3_WEATHER_BUCKET', 'paladinoutputs'),
+          s3_key,
+          local_path
+        )
+        
+        logger.info(f"Downloaded: {s3_key}")
+        success = True
+          
+      except Exception as error:
+        logger.error(f"Failed to download {s3_key}: {error}")
+        success = False
+
+  if forecast_hour is not None:
+    return (local_path, forecast_hour) if success else None
+  else:
+    return success

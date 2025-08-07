@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import logging
 import io
 from PIL import Image
@@ -17,12 +17,91 @@ logger = logging.getLogger(__name__)
 
 TILE_SIZE = 256
 
-def generate_tile(zoom: int, x: int, y: int, data: List[Dict], 
-                 variable: Optional[str] = None, forecast_hour: str = "01") -> Optional[bytes]:
+class WeatherDataProcessor:
     
+    def __init__(self, data: List[Dict]):
+        self.data = data
+        self.wind_map = {}
+        self.lat_set = []
+        self.lng_set = []
+        self._build_lookup_structures()
+    
+    def _build_lookup_structures(self):
+        for point in self.data:
+            key = f"{point['lat']},{point['lng']}"
+            self.wind_map[key] = point
+            self.lat_set.append(point['lat'])
+            self.lng_set.append(point['lng'])
+        
+        # Remove duplicates and sort for binary search
+        self.unique_lat_set = sorted(list(set(self.lat_set)))
+        self.unique_lng_set = sorted(list(set(self.lng_set)))
+        
+        logger.info(f"Built lookup structures: {len(self.unique_lat_set)} unique lats, {len(self.unique_lng_set)} unique lngs")
+    
+    def filter_data_to_bounds(self, bounds: Dict, variable: Optional[str] = None) -> List[Dict]:
+        # Use binary search to find lat/lng ranges instead of linear search
+        lat_start_idx = max(0, self._find_lat_range_start(bounds['bottom']))
+        lat_end_idx = min(len(self.unique_lat_set), self._find_lat_range_end(bounds['top']))
+        
+        lng_start_idx = max(0, self._find_lng_range_start(bounds['left']))
+        lng_end_idx = min(len(self.unique_lng_set), self._find_lng_range_end(bounds['right']))
+        
+        filtered = []
+        
+        # Only check points within the lat/lng ranges
+        for lat in self.unique_lat_set[lat_start_idx:lat_end_idx]:
+            for lng in self.unique_lng_set[lng_start_idx:lng_end_idx]:
+                point = self.wind_map.get(f"{lat},{lng}")
+                if not point:
+                    continue
+                
+                # Validate required data exists
+                if variable and variable != 'wspd':
+                    if point.get(variable) is None:
+                        continue
+                elif not variable or variable == 'wspd':
+                    if point.get('u10') is None or point.get('v10') is None:
+                        continue
+                
+                filtered.append(point)
+        
+        return filtered
+    
+    def _find_lat_range_start(self, min_lat: float) -> int:
+        """Find starting index for latitude range"""
+        for i, lat in enumerate(self.unique_lat_set):
+            if lat >= min_lat:
+                return max(0, i - 1)  # Include one point before for interpolation
+        return len(self.unique_lat_set)
+    
+    def _find_lat_range_end(self, max_lat: float) -> int:
+        """Find ending index for latitude range"""
+        for i, lat in enumerate(self.unique_lat_set):
+            if lat > max_lat:
+                return min(len(self.unique_lat_set), i + 1)  # Include one point after
+        return len(self.unique_lat_set)
+    
+    def _find_lng_range_start(self, min_lng: float) -> int:
+        """Find starting index for longitude range"""
+        for i, lng in enumerate(self.unique_lng_set):
+            if lng >= min_lng:
+                return max(0, i - 1)
+        return len(self.unique_lng_set)
+    
+    def _find_lng_range_end(self, max_lng: float) -> int:
+        """Find ending index for longitude range"""
+        for i, lng in enumerate(self.unique_lng_set):
+            if lng > max_lng:
+                return min(len(self.unique_lng_set), i + 1)
+        return len(self.unique_lng_set)
+
+def generate_tile_optimized(zoom: int, x: int, y: int, processor: WeatherDataProcessor, 
+                          variable: Optional[str] = None, forecast_hour: str = "01") -> Optional[bytes]:
+
     bounds = convert_tile_to_coords(zoom, x, y)
     
-    # Add padding to get data beyond tile boundaries (helps with interpolation at edges)
+    # Add padding to get data beyond tile boundaries
     padding = get_padding_for_zoom(zoom)
     padded_bounds = {
         'left': bounds['left'] - padding,
@@ -31,26 +110,17 @@ def generate_tile(zoom: int, x: int, y: int, data: List[Dict],
         'bottom': bounds['bottom'] - padding
     }
     
-    logger.info(f"Getting data for tile zoom {zoom}, x {x}, y {y}")
-    
-    # Filter data to padded bounds
-    filtered_data = filter_data_to_bounds(data, padded_bounds, variable)
+    # Use optimized filtering
+    filtered_data = processor.filter_data_to_bounds(padded_bounds, variable)
     
     if not filtered_data:
-        logger.warning(f"No data found for tile {zoom}/{x}/{y}, variable {variable}")
         return None
-    
-    logger.info(f"Filtered to {len(filtered_data)} data points for tile {zoom}/{x}/{y}")
     
     # Create RGBA image array
     image_array = np.zeros((TILE_SIZE, TILE_SIZE, 4), dtype=np.uint8)
     
-    logger.info(f"Filling tile pixels for zoom {zoom}, x {x}, y {y}")
-    
-    # Fill the raster with interpolated values
-    fill_raster_with_interpolation(image_array, filtered_data, bounds, variable)
-    
-    logger.info(f"Saving tile image data for zoom {zoom}, x {x}, y {y}")
+    # Fill the raster with interpolated values using pre-built structures
+    fill_raster_optimized(image_array, filtered_data, bounds, variable, processor)
     
     # Convert NumPy array to PIL Image and return as PNG bytes
     image = Image.fromarray(image_array, 'RGBA')
@@ -58,23 +128,13 @@ def generate_tile(zoom: int, x: int, y: int, data: List[Dict],
     image.save(buffer, format='PNG')
     return buffer.getvalue()
 
-def fill_raster_with_interpolation(pixels: np.ndarray, wind_data: List[Dict], 
-                                 bounds: Dict, scalar: Optional[str] = None):
+def fill_raster_optimized(pixels: np.ndarray, wind_data: List[Dict], 
+                         bounds: Dict, variable: Optional[str], processor: WeatherDataProcessor):
     
-    # Build lookup structures for fast data access
-    wind_map = {}
-    lat_set = []
-    lng_set = []
-    
-    for point in wind_data:
-        key = f"{point['lat']},{point['lng']}"
-        wind_map[key] = point
-        lat_set.append(point['lat'])
-        lng_set.append(point['lng'])
-    
-    # Remove duplicates and sort for binary search
-    unique_lat_set = sorted(list(set(lat_set)))
-    unique_lng_set = sorted(list(set(lng_set)))
+    # Use pre-built lookup structures from processor
+    wind_map = processor.wind_map
+    unique_lat_set = processor.unique_lat_set
+    unique_lng_set = processor.unique_lng_set
     
     # Loop through each pixel in the tile
     for y in range(TILE_SIZE):
@@ -82,95 +142,65 @@ def fill_raster_with_interpolation(pixels: np.ndarray, wind_data: List[Dict],
             # Convert pixel coordinates to lat/lng
             lat_lng = pixel_to_lat_lng(x, y, bounds, TILE_SIZE)
             
-            if scalar:
-                # Interpolate scalar value
-                value = interpolate_bilinear(
-                    lat_lng['lat'], lat_lng['lng'], 
-                    wind_map, unique_lat_set, unique_lng_set, scalar
-                )
-                
-                if value is not None:
-                    # Map scalar to appropriate color function
-                    if scalar == 'tmp':
-                        color = temperature_to_color(value)
-                    elif scalar == 'rh':
-                        color = humidity_to_color(value)
-                    elif scalar == 'mc1':
-                        color = mc1_to_color(value)
-                    elif scalar == 'mc10':
-                        color = mc10_to_color(value)
-                    elif scalar == 'mc100':
-                        color = mc100_to_color(value)
-                    elif scalar == 'mc1000':
-                        color = mc1000_to_color(value)
-                    elif scalar == 'mcwood':
-                        color = mc_wood_to_color(value)
-                    elif scalar == 'mcherb':
-                        color = mc_herb_to_color(value)
-                    elif scalar == 'kbdi':
-                        color = kbdi_to_color(value)
-                    elif scalar == 'ic':
-                        color = ic_to_color(value)
-                    elif scalar == 'erc':
-                        color = erc_to_color(value)
-                    elif scalar == 'bi':
-                        color = bi_to_color(value)
-                    elif scalar == 'sc':
-                        color = sc_to_color(value)
-                    elif scalar == 'gsi':
-                        color = gsi_to_color(value)
-                    else:
-                        # Default fallback color mapping
-                        from utils import alpha_color
-                        color = {
-                            'r': 0,
-                            'g': 0, 
-                            'b': int(value),
-                            'a': alpha_color(0, 0, int(value))
-                        }
-                    
-                    set_pixel_color(pixels, x, y, color)
-                else:
-                    # Transparent pixel for missing data
-                    set_pixel_color(pixels, x, y, {'r': 0, 'g': 0, 'b': 0, 'a': 0})
+            # Interpolate value using pre-built structures
+            value = interpolate_bilinear(
+                lat_lng['lat'], lat_lng['lng'], 
+                wind_map, unique_lat_set, unique_lng_set, variable
+            )
             
+            if value is not None:
+                # Map to appropriate color function
+                color = get_color_for_variable(variable, value)
+                set_pixel_color(pixels, x, y, color)
             else:
-                # Interpolate wind speed
-                wind_speed = interpolate_bilinear(
-                    lat_lng['lat'], lat_lng['lng'],
-                    wind_map, unique_lat_set, unique_lng_set
-                )
-                
-                if wind_speed is not None:
-                    color = wind_speed_to_color(wind_speed)
-                    set_pixel_color(pixels, x, y, color)
-                else:
-                    # Transparent pixel for missing data
-                    set_pixel_color(pixels, x, y, {'r': 0, 'g': 0, 'b': 0, 'a': 0})
+                # Transparent pixel for missing data
+                set_pixel_color(pixels, x, y, {'r': 0, 'g': 0, 'b': 0, 'a': 0})
 
-def filter_data_to_bounds(data: List[Dict], bounds: Dict, variable: Optional[str] = None) -> List[Dict]:
+def get_color_for_variable(variable: Optional[str], value: float) -> Dict[str, int]:
 
-    filtered = []
-    
-    for point in data:
-        # Check if point is within bounds
-        lat = point.get('lat')
-        lng = point.get('lng')
-        
-        if (lat is None or lng is None or
-            lat < bounds['bottom'] or lat > bounds['top'] or
-            lng < bounds['left'] or lng > bounds['right']):
-            continue
-            
-        # If we're filtering for a specific variable, ensure it has a valid value
-        if variable and variable != 'wspd':
-            if point.get(variable) is None:
-                continue
-        elif not variable or variable == 'wspd':
-            # For wind speed, we need u10 and v10 components
-            if point.get('u10') is None or point.get('v10') is None:
-                continue
-                
-        filtered.append(point)
-    
-    return filtered
+    if not variable or variable == 'wspd':
+        return wind_speed_to_color(value)
+    elif variable == 'tmp':
+        return temperature_to_color(value)
+    elif variable == 'rh':
+        return humidity_to_color(value)
+    elif variable == 'mc1':
+        return mc1_to_color(value)
+    elif variable == 'mc10':
+        return mc10_to_color(value)
+    elif variable == 'mc100':
+        return mc100_to_color(value)
+    elif variable == 'mc1000':
+        return mc1000_to_color(value)
+    elif variable == 'mcwood':
+        return mc_wood_to_color(value)
+    elif variable == 'mcherb':
+        return mc_herb_to_color(value)
+    elif variable == 'kbdi':
+        return kbdi_to_color(value)
+    elif variable == 'ic':
+        return ic_to_color(value)
+    elif variable == 'erc':
+        return erc_to_color(value)
+    elif variable == 'bi':
+        return bi_to_color(value)
+    elif variable == 'sc':
+        return sc_to_color(value)
+    elif variable == 'gsi':
+        return gsi_to_color(value)
+    else:
+        # Default fallback color mapping
+        from utils import alpha_color
+        return {
+            'r': 0,
+            'g': 0, 
+            'b': int(min(255, max(0, value))),
+            'a': alpha_color(0, 0, int(min(255, max(0, value))))
+        }
+
+# Keep the original function for backward compatibility
+def generate_tile(zoom: int, x: int, y: int, data: List[Dict], 
+                 variable: Optional[str] = None, forecast_hour: str = "01") -> Optional[bytes]:
+
+    processor = WeatherDataProcessor(data)
+    return generate_tile_optimized(zoom, x, y, processor, variable, forecast_hour)
