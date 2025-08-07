@@ -1,4 +1,13 @@
 from utils import fahrenheit_to_celsius
+import numpy as np
+from typing import Dict
+
+def set_pixel_color(pixels: np.ndarray, x: int, y: int, color: Dict[str, int], tile_size: int = 256):
+    if 0 <= x < tile_size and 0 <= y < tile_size:
+        pixels[y, x, 0] = color['r']  # Red
+        pixels[y, x, 1] = color['g']  # Green
+        pixels[y, x, 2] = color['b']  # Blue
+        pixels[y, x, 3] = color['a']  # Alpha
 
 def wind_speed_to_color(speed):
     if speed < 1:
