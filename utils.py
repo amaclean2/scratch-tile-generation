@@ -1,26 +1,25 @@
 from datetime import datetime, timezone
 import math
+import os
 
 def build_most_recent_file_stamp():
-  current_time = datetime.now(timezone.utc)
-  year = current_time.year
-  month = str(current_time.month).zfill(2)
-  day = str(current_time.day).zfill(2)
-  hour = '12' if current_time.hour >= 12 else '00'
-  
-  return f"{year}/{month}/{day}/{hour}"
-
-def create_tile_path():
-  return "./tiles/something"
+	current_time = datetime.now(timezone.utc)
+	year = current_time.year
+	month = str(current_time.month).zfill(2)
+	day = str(current_time.day).zfill(2)
+	hour = '12' if current_time.hour >= 12 else '00'
+	
+	return f"{year}/{month}/{day}/{hour}"
 
 def create_local_netcdf_path(filename):
-  return f"./temp/{filename}"
+	os.makedirs("/tmp", exist_ok=True)
+	return f"/tmp/{filename}"
 
 def build_s3_filename(current_timestamp, forecast_hour='01'):
-  splits = current_timestamp.split('/')
-  year, month, day, hour = splits
-  
-  return f"hrrr/{current_timestamp}/log_{year}_{month}_{day}_{hour}_{forecast_hour}.nc"
+	splits = current_timestamp.split('/')
+	year, month, day, hour = splits
+	
+	return f"hrrr/{current_timestamp}/log_{year}_{month}_{day}_{hour}_{forecast_hour}.nc"
 
 def convert_tile_to_coords(zoom, x, y):
 	n = math.pow(2, zoom)
@@ -100,9 +99,27 @@ def alpha_color(r, g, b):
 		return min(255, (sum(valid_colors) / len(valid_colors)) * 2)
 	return 0
 
-# Temperature conversion functions
 def fahrenheit_to_celsius(fahrenheit):
 	return ((fahrenheit - 32) * 5) / 9
 
 def celsius_to_fahrenheit(celsius):
-	return (celsius * 9) / 5 + 32
+    return (celsius * 9) / 5 + 32
+
+def get_lambda_tmp_space():
+	try:
+		statvfs = os.statvfs('/tmp')
+		available_bytes = statvfs.f_frsize * statvfs.f_bavail
+		return available_bytes / (1024 * 1024)  # Return MB
+	except:
+		return 512  # Default assumption
+
+def cleanup_tmp_directory():
+	tmp_dir = "/tmp"
+	if os.path.exists(tmp_dir):
+		for file in os.listdir(tmp_dir):
+			file_path = os.path.join(tmp_dir, file)
+			try:
+				if os.path.isfile(file_path):
+					os.remove(file_path)
+			except Exception:
+				pass

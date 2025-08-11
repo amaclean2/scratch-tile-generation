@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from read_net_cdf import read_weather
-from generate_tiles import generate_tile, generate_tile_optimized, WeatherDataProcessor
+from generate_tiles import generate_tile, generate_tile, WeatherDataProcessor
 from s3_and_database_access import download_netcdf_file
 from utils import build_most_recent_file_stamp, build_s3_filename, create_local_netcdf_path
 
@@ -39,7 +39,7 @@ async def test_performance_comparison():
 		processor = WeatherDataProcessor(weather_data)
 		
 		for i, (zoom, x, y) in enumerate(test_tiles):
-			tile = generate_tile_optimized(zoom, x, y, processor, variable='tmp')
+			tile = generate_tile(zoom, x, y, processor, variable='tmp')
 			
 			if tile:
 				with open(f"optimized_tile_{i}_{zoom}_{x}_{y}.png", "wb") as f:
@@ -93,7 +93,7 @@ async def test_batch_generation():
 		for variable in variables:
 			for x in x_range:
 				for y in y_range:
-					tile = generate_tile_optimized(zoom, x, y, processor, variable)
+					tile = generate_tile(zoom, x, y, processor, variable)
 					if tile:
 						tiles_generated += 1
 						# Save tile

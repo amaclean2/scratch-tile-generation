@@ -98,12 +98,11 @@ class WeatherDataProcessor:
 				return min(len(self.unique_lng_set), i + 1)
 		return len(self.unique_lng_set)
 
-def generate_tile(zoom: int, x: int, y: int, processor: WeatherDataProcessor, 
-                          variable: Optional[str] = None, forecast_hour: str = "01") -> Optional[bytes]:
-
+def generate_tile(zoom, x, y, data, variable, forecast_housr):
+	processor = WeatherDataProcessor(data)
+	
 	bounds = convert_tile_to_coords(zoom, x, y)
 	
-	# Add padding to handle boundary conditions
 	padding = get_padding_for_zoom(zoom)
 	padded_bounds = {
 		'left': bounds['left'] - padding,
@@ -125,6 +124,7 @@ def generate_tile(zoom: int, x: int, y: int, processor: WeatherDataProcessor,
 	buffer = io.BytesIO()
 	image.save(buffer, format='PNG')
 	return buffer.getvalue()
+
 
 def fill_raster(pixels: np.ndarray, wind_data: List[Dict], 
    bounds: Dict, variable: Optional[str], processor: WeatherDataProcessor):
@@ -149,6 +149,7 @@ def fill_raster(pixels: np.ndarray, wind_data: List[Dict],
 			else:
 				# Transparent pixel for missing data
 				set_pixel_color(pixels, x, y, {'r': 0, 'g': 0, 'b': 0, 'a': 0})
+    
 
 def get_color_for_variable(variable: Optional[str], value: float) -> Dict[str, int]:
 
@@ -191,10 +192,3 @@ def get_color_for_variable(variable: Optional[str], value: float) -> Dict[str, i
 			'b': int(min(255, max(0, value))),
 			'a': alpha_color(0, 0, int(min(255, max(0, value))))
 		}
-
-# Keep the original function for backward compatibility
-def generate_tile(zoom: int, x: int, y: int, data: List[Dict], 
-                 variable: Optional[str] = None, forecast_hour: str = "01") -> Optional[bytes]:
-
-	processor = WeatherDataProcessor(data)
-	return generate_tile_optimized(zoom, x, y, processor, variable, forecast_hour)

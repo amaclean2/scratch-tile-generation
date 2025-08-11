@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from utils import build_most_recent_file_stamp, build_s3_filename
 from pymongo import MongoClient
 import asyncio
@@ -113,3 +114,23 @@ async def download_netcdf_file(s3_key, local_path, forecast_hour, semaphore):
     return (local_path, forecast_hour) if success else None
   else:
     return success
+  
+  
+async def mark_tiles_complete(timestamp):
+  from s3_and_database_access import db
+  
+  try:
+    db.tile_status.update_one(
+      {'modelRun': timestamp},
+      {
+        '$set': {
+          'modelRun': timestamp,
+          'status': 'complete',
+          'completedAt': datetime.now(timezone.utc)
+        }
+      },
+      upsert=True
+    )
+    logger.info(f"Marked tiles complete for {timestamp}")
+  except Exception as e:
+    logger.error(f"Failed to mark tiles complete: {e}")
