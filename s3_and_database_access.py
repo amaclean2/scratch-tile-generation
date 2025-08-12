@@ -23,7 +23,6 @@ mongo_client = MongoClient(
 db = mongo_client.paladin
 
 async def look_for_current_tiles():
-  """Check if current tiles exist in MongoDB"""
   try:
     current_timestamp = build_most_recent_file_stamp()
     
@@ -46,7 +45,6 @@ async def look_for_current_tiles():
     raise
 
 async def check_for_current_weather_files():
-  """Check if current weather files exist in S3"""
   current_timestamp = build_most_recent_file_stamp()
   
   try:

@@ -98,7 +98,7 @@ class WeatherDataProcessor:
 				return min(len(self.unique_lng_set), i + 1)
 		return len(self.unique_lng_set)
 
-def generate_tile(zoom, x, y, data, variable, forecast_housr):
+def generate_tile(zoom, x, y, data, variable):
 	processor = WeatherDataProcessor(data)
 	
 	bounds = convert_tile_to_coords(zoom, x, y)
@@ -143,11 +143,9 @@ def fill_raster(pixels: np.ndarray, wind_data: List[Dict],
 			)
 			
 			if value is not None:
-				# Map to appropriate color function
 				color = get_color_for_variable(variable, value)
 				set_pixel_color(pixels, x, y, color)
 			else:
-				# Transparent pixel for missing data
 				set_pixel_color(pixels, x, y, {'r': 0, 'g': 0, 'b': 0, 'a': 0})
     
 
@@ -184,7 +182,6 @@ def get_color_for_variable(variable: Optional[str], value: float) -> Dict[str, i
 	elif variable == 'gsi':
 			return gsi_to_color(value)
 	else:
-		# Default fallback color mapping
 		from utils import alpha_color
 		return {
 			'r': 0,

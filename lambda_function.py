@@ -86,6 +86,59 @@ async def convert_weather_to_tiles():
 
   total_tiles_generated = 0
   
+  # test single file
+  # ===========
+  # local_path, forecast_hour = downloaded_files[0]
+  # logger.info(f"Processing forecast hour {forecast_hour}")
+  
+  # weather_data = await read_weather(local_path)
+  
+  # if not weather_data:
+  #   logger.warning(f"No weather data for forecast hour {forecast_hour}")
+  #   return {'status': 'error', 'reason': 'no_weather_data'}
+  
+  # logger.info(f"Successfully read {len(weather_data)} data points for hour {forecast_hour}")
+  
+  # processor = WeatherDataProcessor(weather_data)
+  # logger.info(f"Created processor with {len(processor.unique_lat_set)} lats, and {len(processor.unique_lng_set)} lngs")
+  
+  # test_zoom, test_x, test_y = 6, 15, 23
+  # test_variable = 'tmp'
+
+  # logger.info(f"Testing tile generation and S3 upload: {test_zoom}/{test_x}/{test_y} for {test_variable}")
+
+  # tile_data = generate_tile(test_zoom, test_x, test_y, processor.data, test_variable)
+
+  # if tile_data:
+  #   logger.info(f"Generated tile: {len(tile_data)} bytes")
+    
+  #   # Test S3 upload
+  #   year, month, day, hour = current_timestamp.split('/')
+  #   sortable_timestamp = f"{year}{month}{day}{hour}"
+  #   s3_key = f"hrrr/{sortable_timestamp}/{forecast_hour}/{test_variable}/{test_zoom}_{test_x}_{test_y}.png"
+  #   logger.info(f"Uploading to S3: {s3_key}")
+    
+  #   try:
+  #     await upload_tile_to_s3(tile_data, s3_key)
+  #     logger.info(f"Successfully uploaded tile to S3")
+      
+  #     return {
+  #       'status': 'success',
+  #       'message': f'Generated and uploaded test tile',
+  #       'data_points': len(weather_data),
+  #       's3_key': s3_key,
+  #       'timestamp': current_timestamp
+  #     }
+  #   except Exception as e:
+  #     logger.error(f"S3 upload failed: {e}")
+  #     return {'status': 'error', 'reason': 'upload_failed', 'error': str(e)}
+      
+  # else:
+  #   logger.error("Failed to generate test tile")
+  #   return {'status': 'error', 'reason': 'tile_generation_failed'}
+  
+  # ===========
+  
   for local_path, forecast_hour in downloaded_files:
     logger.info(f"Processing forecast hour {forecast_hour}")
     
@@ -127,50 +180,59 @@ async def generate_all_tiles(processor, timestamp, forecast_hour):
     for variable in VARIABLES:
       logger.info(f"Generating {variable} tiles for zoom {zoom}")
       
+      upload_tasks = []
+      
       for x in range(tile_ranges['x_min'], tile_ranges['x_max'] + 1):
         for y in range(tile_ranges['y_min'], tile_ranges['y_max'] + 1):
           try:
-            tile_data = generate_tile(zoom, x, y, processor, variable)
+            tile_data = generate_tile(zoom, x, y, processor.data, variable)
             
             if tile_data:
-              s3_key = f"hrrr/{timestamp}/{forecast_hour}/{variable}/{zoom}/{x}/{y}.png"
-              await upload_tile_to_s3(tile_data, s3_key)
+              year, month, day, hour = timestamp.split('/')
+              sortable_timestamp = f"{year}{month}{day}{hour}"
+              s3_key = f"hrrr/{sortable_timestamp}/{forecast_hour}/{variable}/{zoom}_{x}_{y}.png"
+              upload_tasks.append(upload_tile_to_s3(tile_data, s3_key))
               tiles_generated += 1
                     
           except Exception as e:
             logger.warning(f"Failed to generate tile {zoom}/{x}/{y} for {variable}: {e}")
-  
+            
+      if upload_tasks:
+        logger.info(f"Uploading {len(upload_tasks)} tiles for {variable} zoom {zoom}")
+        await asyncio.gather(*upload_tasks)
+        logger.info(f"Completed uploads for {variable} zoom {zoom}")
+        
   return tiles_generated
 
 
 def get_tile_ranges_for_zoom(zoom):
   if zoom == 6:
-    return {'x_min': 14, 'x_max': 17, 'y_min': 22, 'y_max': 25}
+    return {'x_min': 12, 'x_max': 19, 'y_min': 20, 'y_max': 27}
   elif zoom == 8:
-    return {'x_min': 56, 'x_max': 71, 'y_min': 88, 'y_max': 103}
+    return {'x_min': 48, 'x_max': 79, 'y_min': 80, 'y_max': 111}
   elif zoom == 10:
-    return {'x_min': 224, 'x_max': 287, 'y_min': 352, 'y_max': 415}
+    return {'x_min': 192, 'x_max': 319, 'y_min': 320, 'y_max': 447}
   else:
     return {'x_min': 0, 'x_max': 3, 'y_min': 0, 'y_max': 3}
   
 
-async def upload_tile_to_s3(tile_data, s3_key):
-  try:
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(
-      None,
-      s3_client.put_object,
-      {
-          'Bucket': os.getenv('S3_TILES_BUCKET', 'paladin-tiles'),
-          'Key': s3_key,
-          'Body': tile_data,
-          'ContentType': 'image/png',
-          'CacheControl': 'max-age=3600'
-      }
-    )
-  except Exception as e:
-    logger.error(f"Failed to upload tile {s3_key}: {e}")
-    raise
+async def upload_tile_to_s3(tile_data, s3_key, semaphore):
+  async with semaphore:
+    try:
+      loop = asyncio.get_event_loop()
+      await loop.run_in_executor(
+        None,
+        lambda: s3_client.put_object(
+            Bucket=os.getenv('S3_TILES_BUCKET', 'custom-tiles'),
+            Key=s3_key,
+            Body=tile_data,
+            ContentType='image/png',
+            CacheControl='max-age=3600, public, immutable'
+        )
+      )
+    except Exception as e:
+      logger.error(f"Failed to upload tile {s3_key}: {e}")
+      raise
   
 
 async def cleanup():
@@ -185,11 +247,8 @@ async def cleanup():
           logger.info(f"Cleaned up {file_path}")
         except Exception as e:
           logger.warning(f"Could not remove {file_path}: {e}")
-    
-    from s3_and_database_access import mongo_client
-    mongo_client.close()
-      
+
   except Exception as e:
     logger.warning(f"Cleanup warning: {e}")
-  
+
   return True
