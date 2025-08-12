@@ -11,15 +11,18 @@ def build_most_recent_file_stamp():
 	
 	return f"{year}/{month}/{day}/{hour}"
 
+
 def create_local_netcdf_path(filename):
 	os.makedirs("/tmp", exist_ok=True)
 	return f"/tmp/{filename}"
+
 
 def build_s3_filename(current_timestamp, forecast_hour='01'):
 	splits = current_timestamp.split('/')
 	year, month, day, hour = splits
 	
 	return f"hrrr/{current_timestamp}/log_{year}_{month}_{day}_{hour}_{forecast_hour}.nc"
+
 
 def convert_tile_to_coords(zoom, x, y):
 	n = math.pow(2, zoom)
@@ -39,11 +42,13 @@ def convert_tile_to_coords(zoom, x, y):
 		'top': north,
 		'bottom': south
 	}
+ 
 
 def get_resolution_for_zoom(zoom):
 	n = math.pow(2, zoom)
 	tile_degrees_width = 360 / n
 	return get_resolution(tile_degrees_width, zoom)
+
 
 def get_resolution(bounds_diff, zoom=None):
 	if bounds_diff > 50:
@@ -65,6 +70,7 @@ def get_resolution(bounds_diff, zoom=None):
 	
 	return 2
 
+
 def get_padding_for_zoom(zoom):
 	if zoom >= 10:
 		return 0.02
@@ -77,10 +83,12 @@ def get_padding_for_zoom(zoom):
 	else:
 		return 0.6
 
+
 def pixel_to_lat_lng(x, y, bounds, tile_size=256):
 	lng = bounds['left'] + (x / tile_size) * (bounds['right'] - bounds['left'])
 	lat = bounds['top'] - (y / tile_size) * (bounds['top'] - bounds['bottom'])
 	return {'lat': lat, 'lng': lng}
+
 
 def binary_search(arr, target):
 	low = 0
@@ -99,11 +107,14 @@ def alpha_color(r, g, b):
 		return min(255, (sum(valid_colors) / len(valid_colors)) * 2)
 	return 0
 
+
 def fahrenheit_to_celsius(fahrenheit):
 	return ((fahrenheit - 32) * 5) / 9
 
+
 def celsius_to_fahrenheit(celsius):
     return (celsius * 9) / 5 + 32
+  
 
 def get_lambda_tmp_space():
 	try:
@@ -112,6 +123,7 @@ def get_lambda_tmp_space():
 		return available_bytes / (1024 * 1024)  # Return MB
 	except:
 		return 512  # Default assumption
+
 
 def cleanup_tmp_directory():
 	tmp_dir = "/tmp"
@@ -123,3 +135,14 @@ def cleanup_tmp_directory():
 					os.remove(file_path)
 			except Exception:
 				pass
+  
+
+def get_tile_ranges_for_zoom(zoom):
+  if zoom == 6:
+    return {'x_min': 9, 'x_max': 20, 'y_min': 20, 'y_max': 25}
+  elif zoom == 8:
+    return {'x_min': 48, 'x_max': 79, 'y_min': 80, 'y_max': 111}
+  elif zoom == 10:
+    return {'x_min': 192, 'x_max': 319, 'y_min': 320, 'y_max': 447}
+  else:
+    return {'x_min': 0, 'x_max': 3, 'y_min': 0, 'y_max': 3}

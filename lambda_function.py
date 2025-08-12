@@ -8,7 +8,7 @@ from generate_tiles import WeatherDataProcessor, generate_tile
 import logging
 import os
 import boto3
-from utils import build_most_recent_file_stamp, build_s3_filename, create_local_netcdf_path
+from utils import build_most_recent_file_stamp, build_s3_filename, create_local_netcdf_path, get_tile_ranges_for_zoom
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -173,15 +173,17 @@ async def convert_weather_to_tiles():
 
 async def generate_all_tiles(processor, timestamp, forecast_hour):
   tiles_generated = 0
-  
-  for zoom in TARGET_ZOOM_LEVELS:
-    tile_ranges = get_tile_ranges_for_zoom(zoom)
+  max_concurrent_uploads = int(os.getenv('MAX_CONCURRENT_UPLOADS', 10))
+  upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
     
-    for variable in VARIABLES:
-      logger.info(f"Generating {variable} tiles for zoom {zoom}")
-      
-      upload_tasks = []
-      
+  for variable in VARIABLES:
+    logger.info(f"Generating {variable} tiles for zoom {zoom}")
+    
+    upload_tasks = []
+    
+    for zoom in TARGET_ZOOM_LEVELS:
+      tile_ranges = get_tile_ranges_for_zoom(zoom)
+    
       for x in range(tile_ranges['x_min'], tile_ranges['x_max'] + 1):
         for y in range(tile_ranges['y_min'], tile_ranges['y_max'] + 1):
           try:
@@ -191,7 +193,7 @@ async def generate_all_tiles(processor, timestamp, forecast_hour):
               year, month, day, hour = timestamp.split('/')
               sortable_timestamp = f"{year}{month}{day}{hour}"
               s3_key = f"hrrr/{sortable_timestamp}/{forecast_hour}/{variable}/{zoom}_{x}_{y}.png"
-              upload_tasks.append(upload_tile_to_s3(tile_data, s3_key))
+              upload_tasks.append(upload_tile_to_s3(tile_data, s3_key, upload_semaphore))
               tiles_generated += 1
                     
           except Exception as e:
@@ -199,21 +201,10 @@ async def generate_all_tiles(processor, timestamp, forecast_hour):
             
       if upload_tasks:
         logger.info(f"Uploading {len(upload_tasks)} tiles for {variable} zoom {zoom}")
-        await asyncio.gather(*upload_tasks)
+        await asyncio.gather(*upload_tasks, return_exceptions=True)
         logger.info(f"Completed uploads for {variable} zoom {zoom}")
         
   return tiles_generated
-
-
-def get_tile_ranges_for_zoom(zoom):
-  if zoom == 6:
-    return {'x_min': 12, 'x_max': 19, 'y_min': 20, 'y_max': 27}
-  elif zoom == 8:
-    return {'x_min': 48, 'x_max': 79, 'y_min': 80, 'y_max': 111}
-  elif zoom == 10:
-    return {'x_min': 192, 'x_max': 319, 'y_min': 320, 'y_max': 447}
-  else:
-    return {'x_min': 0, 'x_max': 3, 'y_min': 0, 'y_max': 3}
   
 
 async def upload_tile_to_s3(tile_data, s3_key, semaphore):
