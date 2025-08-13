@@ -9,6 +9,7 @@ from generate_tiles import WeatherDataProcessor, generate_tile
 import logging
 import os
 import boto3
+import gc
 from utils import build_most_recent_file_stamp, build_s3_filename, create_local_netcdf_path, get_tile_ranges_for_zoom
 
 logger = logging.getLogger(__name__)
@@ -121,53 +122,65 @@ async def convert_weather_to_tiles():
 
 async def generate_all_tiles(processor, timestamp, forecast_hour):
   tiles_generated = 0
-  max_concurrent_uploads = int(os.getenv('MAX_CONCURRENT_UPLOADS', '20'))
+  max_concurrent_uploads = int(os.getenv('MAX_CONCURRENT_UPLOADS', '10'))  # Reduce
   upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
-  
-  logger.info(f"Using {max_concurrent_uploads} concurrent uploads")
   
   for variable in VARIABLES:
     logger.info(f"Processing variable: {variable}")
+    variable_start = time.time()
     
     for zoom in TARGET_ZOOM_LEVELS:
-      batch_start = time.time()
-      logger.info(f"Generating {variable} tiles for zoom {zoom}")
-      tile_ranges = get_tile_ranges_for_zoom(zoom)
+      tiles_generated += await process_zoom_level(
+        processor, timestamp, forecast_hour, variable, zoom, upload_semaphore
+      )
       
-      zoom_upload_tasks = []
-      
-      for x in range(tile_ranges['x_min'], tile_ranges['x_max'] + 1):
-        for y in range(tile_ranges['y_min'], tile_ranges['y_max'] + 1):
-          try:
-            tile_data = generate_tile(zoom, x, y, processor, variable)
+      gc.collect()
+    
+    variable_time = time.time() - variable_start
+    logger.info(f"Completed {variable} in {variable_time:.1f}s")
+  
+  return tiles_generated
+
+
+async def process_zoom_level(processor, timestamp, forecast_hour, variable, zoom, semaphore):
+  batch_start = time.time()
+  tile_ranges = get_tile_ranges_for_zoom(zoom)
+  
+  batch_size = 50 if zoom >= 8 else 100
+  upload_tasks = []
+  tiles_generated = 0
+  
+  total_tiles = (tile_ranges['x_max'] - tile_ranges['x_min'] + 1) * \
+                (tile_ranges['y_max'] - tile_ranges['y_min'] + 1)
+  
+  logger.info(f"Generating {total_tiles} tiles for {variable} zoom {zoom}")
+  
+  for x in range(tile_ranges['x_min'], tile_ranges['x_max'] + 1):
+    for y in range(tile_ranges['y_min'], tile_ranges['y_max'] + 1):
+      try:
+        tile_data = generate_tile(zoom, x, y, processor, variable)
+        
+        if tile_data:
+          year, month, day, hour = timestamp.split('/')
+          sortable_timestamp = f"{year}{month}{day}{hour}"
+          s3_key = f"hrrr/{sortable_timestamp}/{forecast_hour}/{variable}/{zoom}/{zoom}_{x}_{y}.png"
+          
+          upload_tasks.append(upload_tile_to_s3(tile_data, s3_key, semaphore))
+          tiles_generated += 1
+          
+          if len(upload_tasks) >= batch_size:
+            await asyncio.gather(*upload_tasks, return_exceptions=True)
+            upload_tasks.clear()
             
-            if tile_data:
-              year, month, day, hour = timestamp.split('/')
-              sortable_timestamp = f"{year}{month}{day}{hour}"
-              s3_key = f"hrrr/{sortable_timestamp}/{forecast_hour}/{variable}/{zoom}_{x}_{y}.png"
-              
-              zoom_upload_tasks.append(upload_tile_to_s3(tile_data, s3_key, upload_semaphore))
-              tiles_generated += 1
-                    
-          except Exception as e:
-            logger.warning(f"Failed to generate tile {zoom}/{x}/{y} for {variable}: {e}")
-      
-      if zoom_upload_tasks:
-        upload_start = time.time()
-        
-        logger.info(f"Uploading {len(zoom_upload_tasks)} tiles for {variable} zoom {zoom}")
-        results = await asyncio.gather(*zoom_upload_tasks, return_exceptions=True)
-        
-        upload_time = time.time() - upload_start
-        batch_time = time.time() - batch_start
-        
-        failures = sum(1 for r in results if isinstance(r, Exception))
-        if failures > 0:
-          logger.warning(f"{failures} upload failures for {variable} zoom {zoom}")
-        
-        tiles_per_sec = len(zoom_upload_tasks) / upload_time if upload_time > 0 else 0
-        logger.info(f"Completed uploads for {variable} zoom {zoom}: {upload_time:.1f}s upload, {batch_time:.1f}s total, {tiles_per_sec:.2f} tiles/sec")
-        
+      except Exception as e:
+        logger.warning(f"Failed to generate tile {zoom}/{x}/{y}: {e}")
+  
+  if upload_tasks:
+    await asyncio.gather(*upload_tasks, return_exceptions=True)
+  
+  batch_time = time.time() - batch_start
+  logger.info(f"Completed {variable} zoom {zoom}: {batch_time:.1f}s, {tiles_generated} tiles")
+  
   return tiles_generated
   
 

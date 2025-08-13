@@ -98,8 +98,7 @@ class WeatherDataProcessor:
 				return min(len(self.unique_lng_set), i + 1)
 		return len(self.unique_lng_set)
 
-def generate_tile(zoom, x, y, data, variable):
-	processor = WeatherDataProcessor(data)
+def generate_tile(zoom, x, y, processor, variable):
 	
 	bounds = convert_tile_to_coords(zoom, x, y)
 	
