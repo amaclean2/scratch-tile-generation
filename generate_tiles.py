@@ -12,8 +12,8 @@ from color_maps import (set_pixel_color, wind_speed_to_color,
 )
 from utils import convert_tile_to_coords, get_padding_for_zoom, pixel_to_lat_lng
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 TILE_SIZE = 256
 

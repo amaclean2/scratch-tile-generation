@@ -1,5 +1,6 @@
 import json
 import asyncio
+import time
 from read_net_cdf import read_weather
 from s3_and_database_access import (check_for_current_weather_files,
   download_multiple_netcdf_files, look_for_current_tiles, mark_tiles_complete
@@ -10,8 +11,8 @@ import os
 import boto3
 from utils import build_most_recent_file_stamp, build_s3_filename, create_local_netcdf_path, get_tile_ranges_for_zoom
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 # Initialize S3 client for tile uploads
 s3_client = boto3.client('s3', region_name=os.getenv('AWS_REGION', 'us-east-1'))
@@ -86,59 +87,6 @@ async def convert_weather_to_tiles():
 
   total_tiles_generated = 0
   
-  # test single file
-  # ===========
-  # local_path, forecast_hour = downloaded_files[0]
-  # logger.info(f"Processing forecast hour {forecast_hour}")
-  
-  # weather_data = await read_weather(local_path)
-  
-  # if not weather_data:
-  #   logger.warning(f"No weather data for forecast hour {forecast_hour}")
-  #   return {'status': 'error', 'reason': 'no_weather_data'}
-  
-  # logger.info(f"Successfully read {len(weather_data)} data points for hour {forecast_hour}")
-  
-  # processor = WeatherDataProcessor(weather_data)
-  # logger.info(f"Created processor with {len(processor.unique_lat_set)} lats, and {len(processor.unique_lng_set)} lngs")
-  
-  # test_zoom, test_x, test_y = 6, 15, 23
-  # test_variable = 'tmp'
-
-  # logger.info(f"Testing tile generation and S3 upload: {test_zoom}/{test_x}/{test_y} for {test_variable}")
-
-  # tile_data = generate_tile(test_zoom, test_x, test_y, processor.data, test_variable)
-
-  # if tile_data:
-  #   logger.info(f"Generated tile: {len(tile_data)} bytes")
-    
-  #   # Test S3 upload
-  #   year, month, day, hour = current_timestamp.split('/')
-  #   sortable_timestamp = f"{year}{month}{day}{hour}"
-  #   s3_key = f"hrrr/{sortable_timestamp}/{forecast_hour}/{test_variable}/{test_zoom}_{test_x}_{test_y}.png"
-  #   logger.info(f"Uploading to S3: {s3_key}")
-    
-  #   try:
-  #     await upload_tile_to_s3(tile_data, s3_key)
-  #     logger.info(f"Successfully uploaded tile to S3")
-      
-  #     return {
-  #       'status': 'success',
-  #       'message': f'Generated and uploaded test tile',
-  #       'data_points': len(weather_data),
-  #       's3_key': s3_key,
-  #       'timestamp': current_timestamp
-  #     }
-  #   except Exception as e:
-  #     logger.error(f"S3 upload failed: {e}")
-  #     return {'status': 'error', 'reason': 'upload_failed', 'error': str(e)}
-      
-  # else:
-  #   logger.error("Failed to generate test tile")
-  #   return {'status': 'error', 'reason': 'tile_generation_failed'}
-  
-  # ===========
-  
   for local_path, forecast_hour in downloaded_files:
     logger.info(f"Processing forecast hour {forecast_hour}")
     
@@ -173,36 +121,52 @@ async def convert_weather_to_tiles():
 
 async def generate_all_tiles(processor, timestamp, forecast_hour):
   tiles_generated = 0
-  max_concurrent_uploads = int(os.getenv('MAX_CONCURRENT_UPLOADS', 10))
+  max_concurrent_uploads = int(os.getenv('MAX_CONCURRENT_UPLOADS', '20'))
   upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
-    
+  
+  logger.info(f"Using {max_concurrent_uploads} concurrent uploads")
+  
   for variable in VARIABLES:
-    logger.info(f"Generating {variable} tiles for zoom {zoom}")
-    
-    upload_tasks = []
+    logger.info(f"Processing variable: {variable}")
     
     for zoom in TARGET_ZOOM_LEVELS:
+      batch_start = time.time()
+      logger.info(f"Generating {variable} tiles for zoom {zoom}")
       tile_ranges = get_tile_ranges_for_zoom(zoom)
-    
+      
+      zoom_upload_tasks = []
+      
       for x in range(tile_ranges['x_min'], tile_ranges['x_max'] + 1):
         for y in range(tile_ranges['y_min'], tile_ranges['y_max'] + 1):
           try:
-            tile_data = generate_tile(zoom, x, y, processor.data, variable)
+            tile_data = generate_tile(zoom, x, y, processor, variable)
             
             if tile_data:
               year, month, day, hour = timestamp.split('/')
               sortable_timestamp = f"{year}{month}{day}{hour}"
               s3_key = f"hrrr/{sortable_timestamp}/{forecast_hour}/{variable}/{zoom}_{x}_{y}.png"
-              upload_tasks.append(upload_tile_to_s3(tile_data, s3_key, upload_semaphore))
+              
+              zoom_upload_tasks.append(upload_tile_to_s3(tile_data, s3_key, upload_semaphore))
               tiles_generated += 1
                     
           except Exception as e:
             logger.warning(f"Failed to generate tile {zoom}/{x}/{y} for {variable}: {e}")
-            
-      if upload_tasks:
-        logger.info(f"Uploading {len(upload_tasks)} tiles for {variable} zoom {zoom}")
-        await asyncio.gather(*upload_tasks, return_exceptions=True)
-        logger.info(f"Completed uploads for {variable} zoom {zoom}")
+      
+      if zoom_upload_tasks:
+        upload_start = time.time()
+        
+        logger.info(f"Uploading {len(zoom_upload_tasks)} tiles for {variable} zoom {zoom}")
+        results = await asyncio.gather(*zoom_upload_tasks, return_exceptions=True)
+        
+        upload_time = time.time() - upload_start
+        batch_time = time.time() - batch_start
+        
+        failures = sum(1 for r in results if isinstance(r, Exception))
+        if failures > 0:
+          logger.warning(f"{failures} upload failures for {variable} zoom {zoom}")
+        
+        tiles_per_sec = len(zoom_upload_tasks) / upload_time if upload_time > 0 else 0
+        logger.info(f"Completed uploads for {variable} zoom {zoom}: {upload_time:.1f}s upload, {batch_time:.1f}s total, {tiles_per_sec:.2f} tiles/sec")
         
   return tiles_generated
   

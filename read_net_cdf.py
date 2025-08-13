@@ -2,8 +2,8 @@ import logging
 import xarray as xr
 import numpy as np
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 TARGET_ZOOM_LEVELS = [6, 8, 10]
 

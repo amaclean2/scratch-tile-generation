@@ -139,7 +139,7 @@ def cleanup_tmp_directory():
 
 def get_tile_ranges_for_zoom(zoom):
   if zoom == 6:
-    return {'x_min': 9, 'x_max': 20, 'y_min': 20, 'y_max': 25}
+    return {'x_min': 9, 'x_max': 20, 'y_min': 20, 'y_max': 28}
   elif zoom == 8:
     return {'x_min': 48, 'x_max': 79, 'y_min': 80, 'y_max': 111}
   elif zoom == 10:

@@ -7,8 +7,8 @@ import logging
 import boto3
 import os
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 s3_client = boto3.client(
   's3',
