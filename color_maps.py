@@ -1,198 +1,175 @@
-from utils import fahrenheit_to_celsius
 import numpy as np
-from typing import Dict
-
-def set_pixel_color(pixels: np.ndarray, x: int, y: int, color: Dict[str, int], tile_size: int = 256):
-    if 0 <= x < tile_size and 0 <= y < tile_size:
-        pixels[y, x, 0] = color['r']  # Red
-        pixels[y, x, 1] = color['g']  # Green
-        pixels[y, x, 2] = color['b']  # Blue
-        pixels[y, x, 3] = color['a']  # Alpha
-
-def wind_speed_to_color(speed):
-    if speed < 1:
-        return {'r': 0, 'g': 0, 'b': 0, 'a': 0}
-    elif speed < 3:
-        return {'r': 74, 'g': 144, 'b': 226, 'a': 180}
-    elif speed < 6:
-        return {'r': 80, 'g': 200, 'b': 120, 'a': 200}
-    elif speed < 9:
-        return {'r': 255, 'g': 235, 'b': 59, 'a': 220}
-    elif speed < 12:
-        return {'r': 255, 'g': 167, 'b': 38, 'a': 240}
-    elif speed < 15:
-        return {'r': 244, 'g': 67, 'b': 54, 'a': 255}
-    elif speed < 20:
-        return {'r': 156, 'g': 39, 'b': 176, 'a': 255}
-    else:
-        return {'r': 33, 'g': 33, 'b': 33, 'a': 255}
-
-def temperature_to_color(temp):
-    temp = fahrenheit_to_celsius(temp)
-    if temp < -20:
-        return {'r': 49, 'g': 54, 'b': 149, 'a': 255}
-    elif temp < -5:
-        return {'r': 69, 'g': 117, 'b': 180, 'a': 255}
-    elif temp < 5:
-        return {'r': 116, 'g': 173, 'b': 209, 'a': 240}
-    elif temp < 15:
-        return {'r': 171, 'g': 217, 'b': 233, 'a': 220}
-    elif temp < 25:
-        return {'r': 255, 'g': 255, 'b': 204, 'a': 200}
-    elif temp < 30:
-        return {'r': 254, 'g': 224, 'b': 144, 'a': 220}
-    elif temp < 35:
-        return {'r': 253, 'g': 174, 'b': 97, 'a': 240}
-    elif temp < 40:
-        return {'r': 244, 'g': 109, 'b': 67, 'a': 255}
-    else:
-        return {'r': 165, 'g': 0, 'b': 38, 'a': 255}
-
-def humidity_to_color(rh_percent):
-    if rh_percent < 10:
-        return {'r': 140, 'g': 81, 'b': 10, 'a': 255}
-    elif rh_percent < 20:
-        return {'r': 191, 'g': 129, 'b': 45, 'a': 240}
-    elif rh_percent < 35:
-        return {'r': 223, 'g': 194, 'b': 125, 'a': 220}
-    elif rh_percent < 45:
-        return {'r': 246, 'g': 232, 'b': 195, 'a': 200}
-    elif rh_percent < 55:
-        return {'r': 245, 'g': 245, 'b': 245, 'a': 180}
-    elif rh_percent < 65:
-        return {'r': 199, 'g': 234, 'b': 229, 'a': 200}
-    elif rh_percent < 75:
-        return {'r': 128, 'g': 205, 'b': 193, 'a': 220}
-    elif rh_percent < 85:
-        return {'r': 53, 'g': 151, 'b': 143, 'a': 240}
-    elif rh_percent < 95:
-        return {'r': 1, 'g': 102, 'b': 94, 'a': 255}
-    else:
-        return {'r': 0, 'g': 60, 'b': 48, 'a': 255}
-
-def fuel_moisture_to_color(moisture_percent, max_moisture=30):
-    ratio = min(moisture_percent / max_moisture, 1)
+        
+def apply_wind_colors(arr):
+    rgba = np.zeros((*arr.shape, 4), dtype=np.uint8)
+    breakpoints = np.array([0, 1, 3, 6, 9, 12, 15, 20, 999])
+    colors = np.array([
+        [0, 0, 0, 0],
+        [74, 144, 226, 180],
+        [80, 200, 120, 200],
+        [255, 235, 59, 220],
+        [255, 167, 38, 240],
+        [244, 67, 54, 255],
+        [156, 39, 176, 255],
+        [33, 33, 33, 255]
+    ])
     
-    if ratio < 0.1:
-        return {'r': 139, 'g': 69, 'b': 19, 'a': 255}
-    elif ratio < 0.2:
-        return {'r': 205, 'g': 133, 'b': 63, 'a': 255}
-    elif ratio < 0.3:
-        return {'r': 222, 'g': 184, 'b': 135, 'a': 240}
-    elif ratio < 0.4:
-        return {'r': 245, 'g': 222, 'b': 179, 'a': 220}
-    elif ratio < 0.5:
-        return {'r': 173, 'g': 255, 'b': 47, 'a': 200}
-    elif ratio < 0.7:
-        return {'r': 50, 'g': 205, 'b': 50, 'a': 220}
-    elif ratio < 0.9:
-        return {'r': 34, 'g': 139, 'b': 34, 'a': 240}
-    else:
-        return {'r': 0, 'g': 100, 'b': 0, 'a': 255}
-
-# Specific fuel moisture color functions
-def mc1_to_color(moisture_percent):
-    return fuel_moisture_to_color(moisture_percent, 40)
-
-def mc10_to_color(moisture_percent):
-    return fuel_moisture_to_color(moisture_percent, 40)
-
-def mc100_to_color(moisture_percent):
-    return fuel_moisture_to_color(moisture_percent, 40)
-
-def mc1000_to_color(moisture_percent):
-    return fuel_moisture_to_color(moisture_percent, 40)
-
-def mc_wood_to_color(moisture_percent):
-    return fuel_moisture_to_color(moisture_percent, 200)
-
-def mc_herb_to_color(moisture_percent):
-    return fuel_moisture_to_color(moisture_percent, 250)
-
-# Fire danger color functions
-def fire_danger_to_color(value, max_value=100):
-    ratio = min(value / max_value, 1)
+    indicies = np.digitize(arr, breakpoints) - 1
+    indicies = np.clip(indicies, 0, len(colors) - 1)
     
-    if ratio <= 0:
-        return {'r': 0, 'g': 100, 'b': 0, 'a': 255}
-    elif ratio < 0.2:
-        return {'r': 50, 'g': 205, 'b': 50, 'a': 240}
-    elif ratio < 0.4:
-        return {'r': 255, 'g': 255, 'b': 0, 'a': 220}
-    elif ratio < 0.6:
-        return {'r': 255, 'g': 165, 'b': 0, 'a': 240}
-    elif ratio < 0.8:
-        return {'r': 255, 'g': 69, 'b': 0, 'a': 255}
-    elif ratio < 0.9:
-        return {'r': 220, 'g': 20, 'b': 60, 'a': 255}
-    elif ratio < 1.0:
-        return {'r': 139, 'g': 0, 'b': 0, 'a': 255}
-    else:
-        return {'r': 0, 'g': 0, 'b': 0, 'a': 255}
+    rgba[:,:,0] = colors[indicies, 0]
+    rgba[:,:,1] = colors[indicies, 1]
+    rgba[:,:,2] = colors[indicies, 2]
+    rgba[:,:,3] = colors[indicies, 3]
+    
+    return rgba
 
-def ic_to_color(ic_value):
-    return fire_danger_to_color(ic_value, 100)
+def apply_temperature_colors(arr):
+    rgba = np.zeros((*arr.shape, 4), dtype=np.uint8)
+    breakpoints = np.array([-20, -5, 5, 15, 25, 30, 35, 40, 999])
+    
+    colors = np.array([
+        [49, 54, 149, 255],
+        [69, 117, 180, 255],
+        [116, 173, 209, 240],
+        [171, 217, 233, 220],
+        [255, 255, 204, 200],
+        [254, 224, 144, 220],
+        [253, 174, 97, 240],
+        [244, 109, 67, 255],
+        [165, 0, 38, 255]
+    ])
+    
+    indicies = np.digitize(arr, breakpoints) - 1
+    indicies = np.clip(indicies, 0, len(colors) - 1)
+    
+    rgba[:,:,0] = colors[indicies, 0]
+    rgba[:,:,1] = colors[indicies, 1]
+    rgba[:,:,2] = colors[indicies, 2]
+    rgba[:,:,3] = colors[indicies, 3]
+    
+    return rgba
 
-def erc_to_color(erc_value):
-    return fire_danger_to_color(erc_value, 100)
+def apply_humidity_colors(arr):
+    rgba = np.zeros((*arr.shape, 4), dtype=np.uint8)
+    
+    arr_clean = np.where(np.isnan(arr), 0, arr)
+    
+    breakpoints = np.array([0, 10, 20, 35, 45, 55, 65, 75, 85, 95, 100])
+    colors = np.array([
+        [140, 81, 10, 255],
+        [191, 129, 45, 240],
+        [223, 194, 125, 220],
+        [246, 232, 195, 200],
+        [245, 245, 245, 180],
+        [199, 234, 229, 200],
+        [128, 205, 193, 220],
+        [53, 151, 143, 240],
+        [1, 102, 94, 255],
+        [0, 60, 48, 255]
+    ])
+    
+    indicies = np.digitize(arr_clean / 100.0 * (len(breakpoints) - 1), breakpoints) - 1
+    indicies = np.clip(indicies, 0, len(colors) - 1)
+    
+    rgba[:,:,0] = colors[indicies, 0]
+    rgba[:,:,1] = colors[indicies, 1]
+    rgba[:,:,2] = colors[indicies, 2]
+    rgba[:,:,3] = colors[indicies, 3]
+    
+    return rgba
 
-def bi_to_color(bi_value):
-    return fire_danger_to_color(bi_value, 200)
+def apply_fuel_moisture_colors(arr, max_moisture=30):
+    rgba = np.zeros((*arr.shape, 4), dtype=np.uint8)
+    
+    arr_clean = np.where(np.isnan(arr), 0, arr)
+    ratio = np.clip(arr_clean / max_moisture, 0, 1)
+    
+    rgba[:,:,0] = (ratio * 255).astype(np.uint8)  # Red channel
+    rgba[:,:,1] = ((1 - ratio) * 255).astype(np.uint8)  # Green channel
+    rgba[:,:,2] = (0 * np.ones_like(ratio)).astype(np.uint8)  # Blue channel
+    rgba[:,:,3] = 255  # Alpha channel
+    
+    return rgba
 
-def sc_to_color(sc_value):
-    return fire_danger_to_color(sc_value, 100)
+def apply_mc1_colors(arr):
+    return apply_fuel_moisture_colors(arr, max_moisture=40)
 
-def kbdi_to_color(kbdi_value):
-    if kbdi_value <= 0:
-        return {'r': 34, 'g': 139, 'b': 34, 'a': 255}
-    elif kbdi_value < 100:
-        return {'r': 173, 'g': 255, 'b': 47, 'a': 240}
-    elif kbdi_value < 200:
-        return {'r': 255, 'g': 255, 'b': 0, 'a': 220}
-    elif kbdi_value < 300:
-        return {'r': 255, 'g': 165, 'b': 0, 'a': 240}
-    elif kbdi_value < 400:
-        return {'r': 255, 'g': 69, 'b': 0, 'a': 255}
-    elif kbdi_value < 500:
-        return {'r': 220, 'g': 20, 'b': 60, 'a': 255}
-    elif kbdi_value < 600:
-        return {'r': 139, 'g': 0, 'b': 0, 'a': 255}
-    elif kbdi_value < 700:
-        return {'r': 75, 'g': 0, 'b': 0, 'a': 255}
-    else:
-        return {'r': 0, 'g': 0, 'b': 0, 'a': 255}
+def apply_mc10_colors(arr):
+    return apply_fuel_moisture_colors(arr, max_moisture=40)
 
-def gsi_to_color(gsi_value):
-    if gsi_value <= 0:
-        return {'r': 139, 'g': 69, 'b': 19, 'a': 255}
-    elif gsi_value < 0.2:
-        return {'r': 205, 'g': 133, 'b': 63, 'a': 240}
-    elif gsi_value < 0.4:
-        return {'r': 245, 'g': 222, 'b': 179, 'a': 220}
-    elif gsi_value < 0.6:
-        return {'r': 255, 'g': 250, 'b': 205, 'a': 200}
-    elif gsi_value < 0.8:
-        return {'r': 173, 'g': 255, 'b': 47, 'a': 220}
-    elif gsi_value < 0.9:
-        return {'r': 50, 'g': 205, 'b': 50, 'a': 240}
-    else:
-        return {'r': 0, 'g': 100, 'b': 0, 'a': 255}
+def apply_mc100_colors(arr):
+    return apply_fuel_moisture_colors(arr, max_moisture=40)
 
-# Variable mapping
-VARIABLE_COLOR_MAP = {
-    'wspd': wind_speed_to_color,
-    'tmp': temperature_to_color,
-    'rh': humidity_to_color,
-    'mc1': mc1_to_color,
-    'mc10': mc10_to_color,
-    'mc100': mc100_to_color,
-    'mc1000': mc1000_to_color,
-    'mcwood': mc_wood_to_color,
-    'mcherb': mc_herb_to_color,
-    'kbdi': kbdi_to_color,
-    'ic': ic_to_color,
-    'erc': erc_to_color,
-    'bi': bi_to_color,
-    'sc': sc_to_color,
-    'gsi': gsi_to_color,
-}
+def apply_mc1000_colors(arr):
+    return apply_fuel_moisture_colors(arr, max_moisture=40)
+
+def apply_mc_wood_colors(arr):
+    return apply_fuel_moisture_colors(arr, max_moisture=200)
+
+def apply_mc_herb_colors(arr):
+    return apply_fuel_moisture_colors(arr, max_moisture=250)
+
+def apply_fire_danger_colors(arr, max_value=100):
+    rgba = np.zeros((*arr.shape, 4), dtype=np.uint8)
+    
+    arr_clean = np.where(np.isnan(arr), 0, arr)
+    ratio = np.clip(arr_clean / max_value, 0, 1)
+    
+    rgba[:,:,0] = (ratio * 255).astype(np.uint8)  # Red channel
+    rgba[:,:,1] = ((1 - ratio) * 255).astype(np.uint8)  # Green channel
+    rgba[:,:,2] = (0 * np.ones_like(ratio)).astype(np.uint8)  # Blue channel
+    rgba[:,:,3] = 255  # Alpha channel
+    
+    return rgba
+
+def apply_ic_colors(arr):
+    return apply_fire_danger_colors(arr, max_value=100)
+
+def apply_erc_colors(arr):
+    return apply_fire_danger_colors(arr, max_value=100)
+
+def apply_bi_colors(arr):
+    return apply_fire_danger_colors(arr, max_value=200)
+
+def apply_sc_colors(arr):
+    return apply_fire_danger_colors(arr, max_value=100)
+
+def apply_kbdi_colors(arr):
+    rgba = np.zeros((*arr.shape, 4), dtype=np.uint8)
+    
+    arr_clean = np.where(np.isnan(arr), 0, arr)
+    ratio = np.clip(arr_clean / 700.0, 0, 1)
+    
+    rgba[:,:,0] = (ratio * 255).astype(np.uint8)  # Red channel
+    rgba[:,:,1] = ((1 - ratio) * 255).astype(np.uint8)  # Green channel
+    rgba[:,:,2] = (0 * np.ones_like(ratio)).astype(np.uint8)  # Blue channel
+    rgba[:,:,3] = 255  # Alpha channel
+    
+    return rgba
+
+def apply_gsi_colors(arr):
+    rgba = np.zeros((*arr.shape, 4), dtype=np.uint8)
+    
+    arr_clean = np.where(np.isnan(arr), 0, arr)
+    
+    breakpoints = np.array([0, 0.2, 0.4, 0.6, 0.8, 0.9, 1])
+    colors = np.array([
+        [139, 69, 19, 255],
+        [205, 133, 63, 240],
+        [245, 222, 179, 220],
+        [255, 250, 205, 200],
+        [173, 255, 47, 220],
+        [50, 205, 50, 240],
+        [0, 100, 0, 255]
+    ])
+    
+    indicies = np.digitize(arr_clean / (len(breakpoints) - 1), breakpoints) - 1
+    indicies = np.clip(indicies, 0, len(colors) - 1)
+    
+    rgba[:,:,0] = colors[indicies, 0]
+    rgba[:,:,1] = colors[indicies, 1]
+    rgba[:,:,2] = colors[indicies, 2]
+    rgba[:,:,3] = colors[indicies, 3]
+    
+    return rgba

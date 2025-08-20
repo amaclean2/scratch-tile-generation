@@ -5,7 +5,7 @@ from read_net_cdf import read_weather
 from s3_and_database_access import (check_for_current_weather_files,
   download_multiple_netcdf_files, look_for_current_tiles, mark_tiles_complete
 )
-from generate_tiles import WeatherDataProcessor, generate_tile
+from generate_tiles import generate_tile
 import logging
 import os
 import boto3
@@ -50,12 +50,12 @@ async def process_weather_tiles():
   try:
     current_tiles_exist = await look_for_current_tiles()
     if current_tiles_exist:
-      logger.info("Current tiles already exist, exiting")
+      logger.info("Current tiles already exist")
       return {'status': 'skipped', 'reason': 'tiles_exist'}
         
     files_exist = await check_for_current_weather_files()
     if not files_exist:
-      logger.info("No weather files available, exiting")
+      logger.info("No weather files available")
       return {'status': 'skipped', 'reason': 'no_files'}
     
     result = await convert_weather_to_tiles()
@@ -93,16 +93,16 @@ async def convert_weather_to_tiles():
     
     weather_data = await read_weather(local_path)
     
-    if not weather_data:
+    if weather_data is None or len(weather_data) == 0:
       logger.warning(f"No weather data for forecast hour {forecast_hour}")
       continue
         
-    logger.info(f"Successfully read {len(weather_data)} data points for hour {forecast_hour}")
+    logger.info(f"Successfully loaded raster data for for hour {forecast_hour}")
     
-    processor = WeatherDataProcessor(weather_data)
-    
-    tiles_generated = await generate_all_tiles(processor, current_timestamp, forecast_hour)
+    tiles_generated = await generate_all_tiles(weather_data, current_timestamp, forecast_hour)
     total_tiles_generated += tiles_generated
+    
+    weather_data.close()
     
     try:
       os.remove(local_path)
@@ -120,7 +120,7 @@ async def convert_weather_to_tiles():
   }
   
 
-async def generate_all_tiles(processor, timestamp, forecast_hour):
+async def generate_all_tiles(dataset, timestamp, forecast_hour):
   tiles_generated = 0
   max_concurrent_uploads = int(os.getenv('MAX_CONCURRENT_UPLOADS', '10'))  # Reduce
   upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
@@ -131,7 +131,7 @@ async def generate_all_tiles(processor, timestamp, forecast_hour):
     
     for zoom in TARGET_ZOOM_LEVELS:
       tiles_generated += await process_zoom_level(
-        processor, timestamp, forecast_hour, variable, zoom, upload_semaphore
+        dataset, timestamp, forecast_hour, variable, zoom, upload_semaphore
       )
       
       gc.collect()
@@ -142,7 +142,7 @@ async def generate_all_tiles(processor, timestamp, forecast_hour):
   return tiles_generated
 
 
-async def process_zoom_level(processor, timestamp, forecast_hour, variable, zoom, semaphore):
+async def process_zoom_level(dataset, timestamp, forecast_hour, variable, zoom, semaphore):
   batch_start = time.time()
   tile_ranges = get_tile_ranges_for_zoom(zoom)
   
@@ -158,7 +158,7 @@ async def process_zoom_level(processor, timestamp, forecast_hour, variable, zoom
   for x in range(tile_ranges['x_min'], tile_ranges['x_max'] + 1):
     for y in range(tile_ranges['y_min'], tile_ranges['y_max'] + 1):
       try:
-        tile_data = generate_tile(zoom, x, y, processor, variable)
+        tile_data = generate_tile(x, y, zoom, variable, dataset)
         
         if tile_data:
           year, month, day, hour = timestamp.split('/')

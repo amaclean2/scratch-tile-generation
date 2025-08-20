@@ -22,26 +22,6 @@ def build_s3_filename(current_timestamp, forecast_hour='01'):
 	year, month, day, hour = splits
 	
 	return f"hrrr/{current_timestamp}/log_{year}_{month}_{day}_{hour}_{forecast_hour}.nc"
-
-
-def convert_tile_to_coords(zoom, x, y):
-	n = math.pow(2, zoom)
-	
-	west = (x / n) * 360 - 180
-	east = ((x + 1) / n) * 360 - 180
-	
-	north_lat_rad = math.atan(math.sinh(math.pi * (1 - (2 * y) / n)))
-	south_lat_rad = math.atan(math.sinh(math.pi * (1 - (2 * (y + 1)) / n)))
-	
-	north = (north_lat_rad * 180) / math.pi
-	south = (south_lat_rad * 180) / math.pi
-	
-	return {
-		'left': west,
-		'right': east,
-		'top': north,
-		'bottom': south
-	}
  
 
 def get_resolution_for_zoom(zoom):
@@ -69,25 +49,6 @@ def get_resolution(bounds_diff, zoom=None):
 			return max(2, math.floor(base_resolution / 2))
 	
 	return 2
-
-
-def get_padding_for_zoom(zoom):
-	if zoom >= 10:
-		return 0.02
-	elif zoom >= 8:
-		return 0.08
-	elif zoom >= 6:
-		return 0.2
-	elif zoom >= 4:
-		return 0.4
-	else:
-		return 0.6
-
-
-def pixel_to_lat_lng(x, y, bounds, tile_size=256):
-	lng = bounds['left'] + (x / tile_size) * (bounds['right'] - bounds['left'])
-	lat = bounds['top'] - (y / tile_size) * (bounds['top'] - bounds['bottom'])
-	return {'lat': lat, 'lng': lng}
 
 
 def binary_search(arr, target):
