@@ -2,25 +2,33 @@ import numpy as np
         
 def apply_wind_colors(arr):
     rgba = np.zeros((*arr.shape, 4), dtype=np.uint8)
-    breakpoints = np.array([0, 1, 3, 6, 9, 12, 15, 20, 999])
+    breakpoints = np.array([0, 0.5, 1, 2, 3, 4.5, 6, 7.5, 9, 10.5, 12, 13.5, 15, 17.5, 20, 999])
     colors = np.array([
-        [0, 0, 0, 0],
-        [74, 144, 226, 180],
-        [80, 200, 120, 200],
-        [255, 235, 59, 220],
-        [255, 167, 38, 240],
-        [244, 67, 54, 255],
-        [156, 39, 176, 255],
-        [33, 33, 33, 255]
+        [0, 0, 0, 0],           # 0
+        [37, 72, 113, 90],      # 0.5
+        [74, 144, 226, 180],    # 1
+        [77, 172, 173, 190],    # 2  
+        [80, 200, 120, 200],    # 3
+        [167, 217, 89, 210],    # 4.5
+        [255, 235, 59, 220],    # 6
+        [255, 201, 48, 230],    # 7.5
+        [255, 167, 38, 240],    # 9
+        [249, 115, 46, 247],    # 10.5
+        [244, 67, 54, 255],     # 12
+        [200, 53, 115, 255],    # 13.5
+        [156, 39, 176, 255],    # 15
+        [94, 36, 104, 255],     # 17.5
+        [33, 33, 33, 255],      # 20
+        [33, 33, 33, 255]       # 999
     ])
     
-    indicies = np.digitize(arr, breakpoints) - 1
-    indicies = np.clip(indicies, 0, len(colors) - 1)
+    indices = np.digitize(arr, breakpoints) - 1
+    indices = np.clip(indices, 0, len(colors) - 1)
     
-    rgba[:,:,0] = colors[indicies, 0]
-    rgba[:,:,1] = colors[indicies, 1]
-    rgba[:,:,2] = colors[indicies, 2]
-    rgba[:,:,3] = colors[indicies, 3]
+    rgba[:,:,0] = colors[indices, 0]
+    rgba[:,:,1] = colors[indices, 1]
+    rgba[:,:,2] = colors[indices, 2]
+    rgba[:,:,3] = colors[indices, 3]
     
     return rgba
 

@@ -1,5 +1,5 @@
 import numpy as np
-import marcantile
+import mercantile
 import logging
 import io
 from PIL import Image
@@ -23,11 +23,12 @@ def generate_tile(x, y, zoom, variable, ds):
       logger.warning(f"Variable {variable} not found in dataset")
       return None
     
-    var_data = ds[variable]
+    var_data = ds[variable].rio.set_spatial_dims(x_dim="lon", y_dim="lat")
     
     tile_ds = var_data.rio.clip_box(
 			bounds.west, bounds.south,
-			bounds.east, bounds.north
+			bounds.east, bounds.north,
+      allow_one_dimensional_raster=True
 		)
     
     if tile_ds.size == 0:
@@ -48,7 +49,7 @@ def generate_tile(x, y, zoom, variable, ds):
     
     img_arr = apply_vectorized_colors(arr, variable)
     
-    image = Image.fromarray(img_arr, mode="")
+    image = Image.fromarray(img_arr)
     
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
@@ -70,29 +71,29 @@ def apply_vectorized_colors(arr, variable):
       return apply_temperature_colors(arr_clean)
     case 'rh':
       return apply_humidity_colors(arr_clean)
-    case 'mc1':
+    case 'MC1':
       return apply_mc1_colors(arr_clean)
-    case 'mc10':
+    case 'MC10':
       return apply_mc10_colors(arr_clean)
-    case 'mc100':
+    case 'MC100':
       return apply_mc100_colors(arr_clean)
-    case 'mc1000':
+    case 'MC1000':
       return apply_mc1000_colors(arr_clean)
-    case 'mcwood':
+    case 'MCWOOD':
       return apply_mc_wood_colors(arr_clean)
-    case 'mcherb':
+    case 'MCHERB':
       return apply_mc_herb_colors(arr_clean)
-    case 'kbdi':
+    case 'KBDI':
       return apply_kbdi_colors(arr_clean)
-    case 'ic':
+    case 'IC':
       return apply_ic_colors(arr_clean)
-    case 'erc':
+    case 'ERC':
       return apply_erc_colors(arr_clean)
-    case 'bi':
+    case 'BI':
       return apply_bi_colors(arr_clean)
-    case 'sc':
+    case 'SC':
       return apply_sc_colors(arr_clean)
-    case 'gsi':
+    case 'GSI':
       return apply_gsi_colors(arr_clean)
     case _:
       normalized = np.clip(arr_clean / 100.0, 0, 1)

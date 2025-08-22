@@ -26,7 +26,7 @@ async def look_for_current_tiles():
   try:
     current_timestamp = build_most_recent_file_stamp()
     
-    tile_status = db.tile_status.find_one({
+    tile_status = db.tileStatus.find_one({
         'modelRun': current_timestamp
     })
     
@@ -49,7 +49,7 @@ async def check_for_current_weather_files():
   
   try:
     # Check if at least one file exists (hour 01)
-    test_file = build_s3_filename(current_timestamp, '01')
+    test_file = build_s3_filename(current_timestamp, '04')
     
     s3_client.head_object(
         Bucket=os.getenv('S3_WEATHER_BUCKET', 'paladinoutputs'),
@@ -118,7 +118,7 @@ async def mark_tiles_complete(timestamp):
   from s3_and_database_access import db
   
   try:
-    db.tile_status.update_one(
+    db.tileStatus.update_one(
       {'modelRun': timestamp},
       {
         '$set': {
