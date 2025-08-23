@@ -52,7 +52,7 @@ def generate_tile(x, y, zoom, variable, ds):
     image = Image.fromarray(img_arr)
     
     buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
+    image.save(buffer, format="PNG", optimize=True, compress_level=1)
     return buffer.getvalue()
   
   except Exception as e:

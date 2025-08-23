@@ -49,7 +49,7 @@ async def process_zoom_level(dataset, timestamp, forecast_hour, variable, zoom, 
   batch_start = time.time()
   tile_ranges = get_tile_ranges_for_zoom(zoom)
   
-  batch_size = 50 if zoom >= 8 else 100
+  batch_size = 25 if zoom >= 10 else 50 if zoom >= 8 else 100
   upload_tasks = []
   tiles_generated = 0
   

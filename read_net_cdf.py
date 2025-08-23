@@ -10,7 +10,6 @@ async def read_weather(local_netcdf_path):
   try:
     logger.info(f"Reading NetCDF file: {local_netcdf_path}")
     
-    # Open NetCDF file with xarray
     ds = xr.open_dataset(local_netcdf_path)
 
     lats = ds['lat'].values

@@ -26,7 +26,7 @@ def create_local_netcdf_path(filename):
 	return f"/tmp/{filename}"
 
 
-def build_s3_filename(current_timestamp, forecast_hour='01'):
+def build_s3_filename(current_timestamp, forecast_hour='03'):
 	splits = current_timestamp.split('/')
 	year, month, day, hour = splits
 	
@@ -108,11 +108,12 @@ def cleanup_tmp_directory():
   
 
 def get_tile_ranges_for_zoom(zoom):
-  if zoom == 6:
-    return {'x_min': 9, 'x_max': 20, 'y_min': 20, 'y_max': 28}
-  elif zoom == 8:
-    return {'x_min': 48, 'x_max': 79, 'y_min': 80, 'y_max': 111}
-  elif zoom == 10:
-    return {'x_min': 192, 'x_max': 319, 'y_min': 320, 'y_max': 447}
-  else:
-    return {'x_min': 0, 'x_max': 3, 'y_min': 0, 'y_max': 3}
+  match zoom:
+    case 6:
+      return {'x_min': 9, 'x_max': 20, 'y_min': 21, 'y_max': 28}
+    case 8:
+      return {'x_min': 39, 'x_max': 81, 'y_min': 86, 'y_max': 113}
+    case 10:
+      return {'x_min': 156, 'x_max': 324, 'y_min': 347, 'y_max': 453}
+    case _:
+      return {'x_min': 0, 'x_max': 3, 'y_min': 0, 'y_max': 3}

@@ -1,10 +1,10 @@
 {
-  "Comment": "Weather tile generation workflow - Safe timestamp handling",
+  "Comment": "Weather tile generation workflow - Parallel processing",
   "StartAt": "InitializeWorkflow",
   "States": {
     "InitializeWorkflow": {
       "Type": "Pass",
-      "Parameters": {
+      "Result": {
         "variables": [
           "wspd",
           "tmp",
@@ -22,10 +22,8 @@
           "SC",
           "GSI"
         ],
-        "current_index": 0,
         "forecast_hour": "01",
-        "total_tiles_generated": 0,
-        "override_timestamp.$": "$.override_timestamp"
+        "override_timestamp": null
       },
       "Comment": "Set up initial workflow parameters",
       "Next": "CheckKillSwitch"
@@ -41,13 +39,11 @@
         }
       },
       "ResultPath": "$.kill_switch_result",
-      "Comment": "Check if processing should be stopped",
       "Next": "KillSwitchActive?"
     },
 
     "KillSwitchActive?": {
       "Type": "Choice",
-      "Comment": "Decide whether to continue based on kill switch",
       "Choices": [
         {
           "Variable": "$.kill_switch_result.Payload.kill_switch_active",
@@ -69,13 +65,11 @@
         }
       },
       "ResultPath": "$.tiles_check_result",
-      "Comment": "Check if tiles already exist for current timestamp",
       "Next": "TilesAlreadyExist?"
     },
 
     "TilesAlreadyExist?": {
       "Type": "Choice",
-      "Comment": "Skip processing if tiles already exist",
       "Choices": [
         {
           "Variable": "$.tiles_check_result.Payload.tiles_exist",
@@ -97,13 +91,11 @@
         }
       },
       "ResultPath": "$.weather_check_result",
-      "Comment": "Check if weather data files are available",
       "Next": "WeatherFilesExist?"
     },
 
     "WeatherFilesExist?": {
       "Type": "Choice",
-      "Comment": "Skip processing if no weather files available",
       "Choices": [
         {
           "Variable": "$.weather_check_result.Payload.files_exist",
@@ -111,69 +103,84 @@
           "Next": "NoWeatherFiles"
         }
       ],
-      "Default": "ProcessNextVariable"
+      "Default": "ProcessAllVariablesInParallel"
     },
 
-    "ProcessNextVariable": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::lambda:invoke",
-      "Parameters": {
-        "FunctionName": "custom-tile-generator",
-        "Payload": {
-          "action": "process_variable",
-          "variable.$": "States.ArrayGetItem($.variables, $.current_index)",
-          "forecast_hour.$": "$.forecast_hour",
-          "override_timestamp.$": "$.override_timestamp"
-        }
-      },
-      "ResultPath": "$.process_result",
-      "Comment": "Process tiles for current variable",
-      "Retry": [
+    "ProcessAllVariablesInParallel": {
+      "Type": "Parallel",
+      "Comment": "Process all variables simultaneously",
+      "Branches": [
         {
-          "ErrorEquals": ["States.TaskFailed"],
-          "IntervalSeconds": 30,
-          "MaxAttempts": 2,
-          "BackoffRate": 2.0,
-          "Comment": "Retry failed variable processing"
+          "StartAt": "ProcessWSPD",
+          "States": {
+            "ProcessWSPD": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "custom-tile-generator",
+                "Payload": {
+                  "action": "process_variable",
+                  "variable": "wspd",
+                  "forecast_hour.$": "$.forecast_hour",
+                  "override_timestamp.$": "$.override_timestamp"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "ProcessTMP",
+          "States": {
+            "ProcessTMP": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "custom-tile-generator",
+                "Payload": {
+                  "action": "process_variable",
+                  "variable": "tmp",
+                  "forecast_hour.$": "$.forecast_hour",
+                  "override_timestamp.$": "$.override_timestamp"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "ProcessRH",
+          "States": {
+            "ProcessRH": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "custom-tile-generator",
+                "Payload": {
+                  "action": "process_variable",
+                  "variable": "rh",
+                  "forecast_hour.$": "$.forecast_hour",
+                  "override_timestamp.$": "$.override_timestamp"
+                }
+              },
+              "End": true
+            }
+          }
         }
       ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "ProcessingFailed",
-          "ResultPath": "$.error_info",
-          "Comment": "Handle processing failures gracefully"
-        }
-      ],
-      "Next": "UpdateProgress"
+      "ResultPath": "$.parallel_results",
+      "Next": "AggregateResults"
     },
 
-    "UpdateProgress": {
+    "AggregateResults": {
       "Type": "Pass",
       "Parameters": {
-        "variables.$": "$.variables",
-        "current_index.$": "States.MathAdd($.current_index, 1)",
-        "forecast_hour.$": "$.forecast_hour",
-        "override_timestamp.$": "$.override_timestamp",
-        "total_tiles_generated.$": "States.MathAdd($.total_tiles_generated, $.process_result.Payload.tiles_generated)",
-        "last_processed_variable.$": "$.process_result.Payload.variable",
-        "last_variable_tiles.$": "$.process_result.Payload.tiles_generated"
+        "status": "completed",
+        "total_tiles_generated.$": "States.MathAdd(States.MathAdd($.parallel_results[0].Payload.tiles_generated, $.parallel_results[1].Payload.tiles_generated), $.parallel_results[2].Payload.tiles_generated)",
+        "variables_processed": 3,
+        "override_timestamp.$": "$.override_timestamp"
       },
-      "Comment": "Update counters and progress tracking",
-      "Next": "MoreVariablesToProcess?"
-    },
-
-    "MoreVariablesToProcess?": {
-      "Type": "Choice",
-      "Comment": "Check if more variables need processing",
-      "Choices": [
-        {
-          "Variable": "$.current_index",
-          "NumericLessThan": 15,
-          "Next": "ProcessNextVariable"
-        }
-      ],
-      "Default": "MarkTilesComplete"
+      "Next": "MarkTilesComplete"
     },
 
     "MarkTilesComplete": {
@@ -188,7 +195,6 @@
         }
       },
       "ResultPath": "$.mark_complete_result",
-      "Comment": "Mark tiles as complete in database",
       "Next": "WorkflowComplete"
     },
 
@@ -196,12 +202,11 @@
       "Type": "Pass",
       "Parameters": {
         "status": "completed",
-        "message": "All variables processed successfully",
+        "message": "All variables processed successfully in parallel",
         "total_tiles_generated.$": "$.total_tiles_generated",
         "variables_processed": 15,
         "completed_at.$": "$$.State.EnteredTime"
       },
-      "Comment": "Workflow completed successfully",
       "End": true
     },
 
@@ -213,7 +218,6 @@
         "total_tiles_generated": 0,
         "reason": "tiles_already_exist"
       },
-      "Comment": "Tiles already exist - no processing needed",
       "End": true
     },
 
@@ -225,21 +229,6 @@
         "total_tiles_generated": 0,
         "reason": "no_weather_files"
       },
-      "Comment": "No weather data available",
-      "End": true
-    },
-
-    "ProcessingFailed": {
-      "Type": "Pass",
-      "Parameters": {
-        "status": "failed",
-        "message": "Variable processing encountered an error",
-        "failed_variable.$": "States.ArrayGetItem($.variables, $.current_index)",
-        "error_details.$": "$.error_info",
-        "tiles_generated_before_failure.$": "$.total_tiles_generated",
-        "variables_completed.$": "$.current_index"
-      },
-      "Comment": "Handle processing failures",
       "End": true
     },
 
@@ -251,7 +240,6 @@
         "total_tiles_generated": 0,
         "reason": "kill_switch_active"
       },
-      "Comment": "Workflow stopped by kill switch",
       "End": true
     }
   }

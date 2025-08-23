@@ -51,7 +51,7 @@ async def handle_step_functions_action(event, context):
       
     case 'process_variable':
       variable = event.get('variable', 'wspd')
-      forecast_hour = event.get('forecast_hour', '01')
+      forecast_hour = event.get('forecast_hour', '03')
       result = await process_single_variable(variable, forecast_hour, context)
       
       return {

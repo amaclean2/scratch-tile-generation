@@ -48,8 +48,7 @@ async def check_for_current_weather_files(override=None):
   current_timestamp = build_most_recent_file_stamp(override=override)
 
   try:
-    # Check if at least one file exists (hour 01)
-    test_file = build_s3_filename(current_timestamp, '01')
+    test_file = build_s3_filename(current_timestamp, '03')
     
     logger.info(f"Checking for weather file: {test_file}")
     
