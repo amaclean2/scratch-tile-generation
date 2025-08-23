@@ -32,7 +32,6 @@ async def handle_step_functions_action(event, context):
       kill_switch = db.lambdaControl.find_one({'action': 'stop'})
       
       return {
-        'statusCode': 200,
         'kill_switch_active': bool(kill_switch)
       }
       
@@ -40,7 +39,6 @@ async def handle_step_functions_action(event, context):
       tiles_exist = await look_for_current_tiles(override=override_timestamp)
       
       return {
-        'statusCode': 200,
         'tiles_exist': tiles_exist
       }
       
@@ -48,7 +46,6 @@ async def handle_step_functions_action(event, context):
       files_exist = await check_for_current_weather_files(override=override_timestamp)
 
       return {
-        'statusCode': 200,
         'files_exist': files_exist
       }
       
@@ -58,7 +55,6 @@ async def handle_step_functions_action(event, context):
       result = await process_single_variable(variable, forecast_hour, context)
       
       return {
-        'statusCode': 200,
         'variable': variable,
         'tiles_generated': result.get('tiles_generated', 0),
         'status': 'success'
@@ -69,7 +65,6 @@ async def handle_step_functions_action(event, context):
       await mark_tiles_complete(current_timestamp)
       
       return {
-        'statusCode': 200,
         'timestamp': current_timestamp,
         'total_tiles_generated': event.get('total_tiles_generated', 0),
         'status': 'marked_complete'

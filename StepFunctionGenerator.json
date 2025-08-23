@@ -24,7 +24,8 @@
         ],
         "current_index": 0,
         "forecast_hour": "01",
-        "total_tiles_generated": 0
+        "total_tiles_generated": 0,
+        "override_timestamp.$": "$.override_timestamp"
       },
       "Comment": "Set up initial workflow parameters",
       "Next": "CheckKillSwitch"
@@ -39,9 +40,7 @@
           "action": "check_kill_switch"
         }
       },
-      "ResultSelector": {
-        "kill_switch_active.$": "$.Payload.kill_switch_active"
-      },
+      "ResultPath": "$.kill_switch_result",
       "Comment": "Check if processing should be stopped",
       "Next": "KillSwitchActive?"
     },
@@ -51,7 +50,7 @@
       "Comment": "Decide whether to continue based on kill switch",
       "Choices": [
         {
-          "Variable": "$.kill_switch_active",
+          "Variable": "$.kill_switch_result.Payload.kill_switch_active",
           "BooleanEquals": true,
           "Next": "WorkflowStopped"
         }
@@ -69,9 +68,7 @@
           "override_timestamp.$": "$.override_timestamp"
         }
       },
-      "ResultSelector": {
-        "tiles_exist.$": "$.Payload.tiles_exist"
-      },
+      "ResultPath": "$.tiles_check_result",
       "Comment": "Check if tiles already exist for current timestamp",
       "Next": "TilesAlreadyExist?"
     },
@@ -81,7 +78,7 @@
       "Comment": "Skip processing if tiles already exist",
       "Choices": [
         {
-          "Variable": "$.tiles_exist",
+          "Variable": "$.tiles_check_result.Payload.tiles_exist",
           "BooleanEquals": true,
           "Next": "TilesExistComplete"
         }
@@ -99,9 +96,7 @@
           "override_timestamp.$": "$.override_timestamp"
         }
       },
-      "ResultSelector": {
-        "files_exist.$": "$.Payload.files_exist"
-      },
+      "ResultPath": "$.weather_check_result",
       "Comment": "Check if weather data files are available",
       "Next": "WeatherFilesExist?"
     },
@@ -111,7 +106,7 @@
       "Comment": "Skip processing if no weather files available",
       "Choices": [
         {
-          "Variable": "$.files_exist",
+          "Variable": "$.weather_check_result.Payload.files_exist",
           "BooleanEquals": false,
           "Next": "NoWeatherFiles"
         }
@@ -131,11 +126,7 @@
           "override_timestamp.$": "$.override_timestamp"
         }
       },
-      "ResultSelector": {
-        "tiles_generated.$": "$.Payload.tiles_generated",
-        "variable.$": "$.Payload.variable",
-        "status.$": "$.Payload.status"
-      },
+      "ResultPath": "$.process_result",
       "Comment": "Process tiles for current variable",
       "Retry": [
         {
@@ -164,9 +155,9 @@
         "current_index.$": "States.MathAdd($.current_index, 1)",
         "forecast_hour.$": "$.forecast_hour",
         "override_timestamp.$": "$.override_timestamp",
-        "total_tiles_generated.$": "States.MathAdd($.total_tiles_generated, $.tiles_generated)",
-        "last_processed_variable.$": "$.variable",
-        "last_variable_tiles.$": "$.tiles_generated"
+        "total_tiles_generated.$": "States.MathAdd($.total_tiles_generated, $.process_result.Payload.tiles_generated)",
+        "last_processed_variable.$": "$.process_result.Payload.variable",
+        "last_variable_tiles.$": "$.process_result.Payload.tiles_generated"
       },
       "Comment": "Update counters and progress tracking",
       "Next": "MoreVariablesToProcess?"
@@ -196,6 +187,7 @@
           "override_timestamp.$": "$.override_timestamp"
         }
       },
+      "ResultPath": "$.mark_complete_result",
       "Comment": "Mark tiles as complete in database",
       "Next": "WorkflowComplete"
     },
