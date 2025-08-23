@@ -1,0 +1,266 @@
+{
+  "Comment": "Weather tile generation workflow - Safe timestamp handling",
+  "StartAt": "InitializeWorkflow",
+  "States": {
+    "InitializeWorkflow": {
+      "Type": "Pass",
+      "Parameters": {
+        "variables": [
+          "wspd",
+          "tmp",
+          "rh",
+          "MC1",
+          "MC10",
+          "MC100",
+          "MC1000",
+          "MCWOOD",
+          "MCHERB",
+          "KBDI",
+          "IC",
+          "ERC",
+          "BI",
+          "SC",
+          "GSI"
+        ],
+        "current_index": 0,
+        "forecast_hour": "01",
+        "total_tiles_generated": 0
+      },
+      "Comment": "Set up initial workflow parameters",
+      "Next": "CheckKillSwitch"
+    },
+
+    "CheckKillSwitch": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "custom-tile-generator",
+        "Payload": {
+          "action": "check_kill_switch"
+        }
+      },
+      "ResultSelector": {
+        "kill_switch_active.$": "$.Payload.kill_switch_active"
+      },
+      "Comment": "Check if processing should be stopped",
+      "Next": "KillSwitchActive?"
+    },
+
+    "KillSwitchActive?": {
+      "Type": "Choice",
+      "Comment": "Decide whether to continue based on kill switch",
+      "Choices": [
+        {
+          "Variable": "$.kill_switch_active",
+          "BooleanEquals": true,
+          "Next": "WorkflowStopped"
+        }
+      ],
+      "Default": "CheckExistingTiles"
+    },
+
+    "CheckExistingTiles": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "custom-tile-generator",
+        "Payload": {
+          "action": "check_existing_tiles",
+          "override_timestamp.$": "$.override_timestamp"
+        }
+      },
+      "ResultSelector": {
+        "tiles_exist.$": "$.Payload.tiles_exist"
+      },
+      "Comment": "Check if tiles already exist for current timestamp",
+      "Next": "TilesAlreadyExist?"
+    },
+
+    "TilesAlreadyExist?": {
+      "Type": "Choice",
+      "Comment": "Skip processing if tiles already exist",
+      "Choices": [
+        {
+          "Variable": "$.tiles_exist",
+          "BooleanEquals": true,
+          "Next": "TilesExistComplete"
+        }
+      ],
+      "Default": "CheckWeatherFiles"
+    },
+
+    "CheckWeatherFiles": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "custom-tile-generator",
+        "Payload": {
+          "action": "check_weather_files",
+          "override_timestamp.$": "$.override_timestamp"
+        }
+      },
+      "ResultSelector": {
+        "files_exist.$": "$.Payload.files_exist"
+      },
+      "Comment": "Check if weather data files are available",
+      "Next": "WeatherFilesExist?"
+    },
+
+    "WeatherFilesExist?": {
+      "Type": "Choice",
+      "Comment": "Skip processing if no weather files available",
+      "Choices": [
+        {
+          "Variable": "$.files_exist",
+          "BooleanEquals": false,
+          "Next": "NoWeatherFiles"
+        }
+      ],
+      "Default": "ProcessNextVariable"
+    },
+
+    "ProcessNextVariable": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "custom-tile-generator",
+        "Payload": {
+          "action": "process_variable",
+          "variable.$": "States.ArrayGetItem($.variables, $.current_index)",
+          "forecast_hour.$": "$.forecast_hour",
+          "override_timestamp.$": "$.override_timestamp"
+        }
+      },
+      "ResultSelector": {
+        "tiles_generated.$": "$.Payload.tiles_generated",
+        "variable.$": "$.Payload.variable",
+        "status.$": "$.Payload.status"
+      },
+      "Comment": "Process tiles for current variable",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0,
+          "Comment": "Retry failed variable processing"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ProcessingFailed",
+          "ResultPath": "$.error_info",
+          "Comment": "Handle processing failures gracefully"
+        }
+      ],
+      "Next": "UpdateProgress"
+    },
+
+    "UpdateProgress": {
+      "Type": "Pass",
+      "Parameters": {
+        "variables.$": "$.variables",
+        "current_index.$": "States.MathAdd($.current_index, 1)",
+        "forecast_hour.$": "$.forecast_hour",
+        "override_timestamp.$": "$.override_timestamp",
+        "total_tiles_generated.$": "States.MathAdd($.total_tiles_generated, $.tiles_generated)",
+        "last_processed_variable.$": "$.variable",
+        "last_variable_tiles.$": "$.tiles_generated"
+      },
+      "Comment": "Update counters and progress tracking",
+      "Next": "MoreVariablesToProcess?"
+    },
+
+    "MoreVariablesToProcess?": {
+      "Type": "Choice",
+      "Comment": "Check if more variables need processing",
+      "Choices": [
+        {
+          "Variable": "$.current_index",
+          "NumericLessThan": 15,
+          "Next": "ProcessNextVariable"
+        }
+      ],
+      "Default": "MarkTilesComplete"
+    },
+
+    "MarkTilesComplete": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "custom-tile-generator",
+        "Payload": {
+          "action": "mark_tiles_complete",
+          "total_tiles_generated.$": "$.total_tiles_generated",
+          "override_timestamp.$": "$.override_timestamp"
+        }
+      },
+      "Comment": "Mark tiles as complete in database",
+      "Next": "WorkflowComplete"
+    },
+
+    "WorkflowComplete": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "completed",
+        "message": "All variables processed successfully",
+        "total_tiles_generated.$": "$.total_tiles_generated",
+        "variables_processed": 15,
+        "completed_at.$": "$$.State.EnteredTime"
+      },
+      "Comment": "Workflow completed successfully",
+      "End": true
+    },
+
+    "TilesExistComplete": {
+      "Type": "Pass",
+      "Result": {
+        "status": "skipped",
+        "message": "Tiles already exist for current timestamp",
+        "total_tiles_generated": 0,
+        "reason": "tiles_already_exist"
+      },
+      "Comment": "Tiles already exist - no processing needed",
+      "End": true
+    },
+
+    "NoWeatherFiles": {
+      "Type": "Pass",
+      "Result": {
+        "status": "skipped",
+        "message": "No weather files available for processing",
+        "total_tiles_generated": 0,
+        "reason": "no_weather_files"
+      },
+      "Comment": "No weather data available",
+      "End": true
+    },
+
+    "ProcessingFailed": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "failed",
+        "message": "Variable processing encountered an error",
+        "failed_variable.$": "States.ArrayGetItem($.variables, $.current_index)",
+        "error_details.$": "$.error_info",
+        "tiles_generated_before_failure.$": "$.total_tiles_generated",
+        "variables_completed.$": "$.current_index"
+      },
+      "Comment": "Handle processing failures",
+      "End": true
+    },
+
+    "WorkflowStopped": {
+      "Type": "Pass",
+      "Result": {
+        "status": "stopped",
+        "message": "Workflow stopped by kill switch",
+        "total_tiles_generated": 0,
+        "reason": "kill_switch_active"
+      },
+      "Comment": "Workflow stopped by kill switch",
+      "End": true
+    }
+  }
+}
