@@ -15,10 +15,10 @@ logger.setLevel(logging.INFO)
 
 TARGET_ZOOM_LEVELS = [6, 8, 10]
 
-async def process_single_variable(variable, forecast_hour, context):
+async def process_single_variable(variable, forecast_hour, context, override=None):
   try:
-    current_timestamp = build_most_recent_file_stamp()
-    
+    current_timestamp = build_most_recent_file_stamp(override=override)
+
     s3_netcdf_file = build_s3_filename(current_timestamp, forecast_hour)
     filename = s3_netcdf_file.split('/')[-1]
     local_netcdf_path = create_local_netcdf_path(filename)

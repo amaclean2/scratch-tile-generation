@@ -1,15 +1,24 @@
 from datetime import datetime, timezone
 import math
 import os
+import logging
 
-def build_most_recent_file_stamp():
-	current_time = datetime.now(timezone.utc)
-	year = current_time.year
-	month = str(current_time.month).zfill(2)
-	day = str(current_time.day).zfill(2)
-	hour = '12' if current_time.hour >= 12 else '00'
-	
-	return f"{year}/{month}/{day}/{hour}"
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+def build_most_recent_file_stamp(override=None):
+
+  if override:
+    logger.info(f"Using override timestamp: {override}")
+    return override
+  
+  current_time = datetime.now(timezone.utc)
+  year = current_time.year
+  month = str(current_time.month).zfill(2)
+  day = str(current_time.day).zfill(2)
+  hour = '12' if current_time.hour >= 12 else '00'
+  
+  return f"{year}/{month}/{day}/{hour}"
 
 
 def create_local_netcdf_path(filename):

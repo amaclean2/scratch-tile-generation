@@ -22,10 +22,10 @@ mongo_client = MongoClient(
 )
 db = mongo_client.paladin
 
-async def look_for_current_tiles():
+async def look_for_current_tiles(override=None):
   try:
-    current_timestamp = build_most_recent_file_stamp()
-    
+    current_timestamp = build_most_recent_file_stamp(override=override)
+
     tile_status = db.tileStatus.find_one({
         'modelRun': current_timestamp
     })
@@ -44,12 +44,14 @@ async def look_for_current_tiles():
     logger.error(f"Error checking for current tiles: {error}")
     raise
 
-async def check_for_current_weather_files():
-  current_timestamp = build_most_recent_file_stamp()
-  
+async def check_for_current_weather_files(override=None):
+  current_timestamp = build_most_recent_file_stamp(override=override)
+
   try:
     # Check if at least one file exists (hour 01)
-    test_file = build_s3_filename(current_timestamp, '04')
+    test_file = build_s3_filename(current_timestamp, '01')
+    
+    logger.info(f"Checking for weather file: {test_file}")
     
     s3_client.head_object(
         Bucket=os.getenv('S3_WEATHER_BUCKET', 'paladinoutputs'),
@@ -59,9 +61,14 @@ async def check_for_current_weather_files():
     logger.info(f"Weather files found for timestamp: {current_timestamp}")
     return True
       
-  except s3_client.exceptions.NoSuchKey:
-    logger.info(f"No weather files found for timestamp: {current_timestamp}")
-    return False
+  except Exception as e:
+    error_code = e.response['Error']['Code']
+    if error_code == '404':
+      logger.info(f"No weather files found for timestamp: {current_timestamp}")
+      return False
+    else:
+      logger.error(f"S3 error checking for weather files: {error_code} - {e}")
+      raise
   except Exception as error:
     logger.error(f"Error checking for weather files: {error}")
     raise

@@ -20,83 +20,60 @@ lambda_client = boto3.client('lambda', region_name=os.getenv('AWS_REGION', 'us-e
 VARIABLES = ['wspd', 'tmp', 'rh', 'MC1', 'MC10', 'MC100', 'MC1000', 'MCWOOD', 'MCHERB', 'KBDI', 'IC', 'ERC', 'BI', 'SC', 'GSI']
 
 def lambda_handler(event, context):
-  """Main Lambda handler function"""
-  try:
-    return asyncio.run(async_main(event, context))
-  except Exception as error:
-    logger.error(f"Error in Lambda handler: {error}")
-    return {
-      'statusCode': 500,
-      'body': json.dumps({'error': str(error)})
-    }
-
-async def async_main(event, context):
-  try:
-    kill_switch = db.lambdaControl.find_one({'action': 'stop'})
+  return asyncio.run(handle_step_functions_action(event, context))
     
-    if kill_switch:
-      logger.info("Kill switch activated - stopping tile generation")
-      return {
-        'statusCode': 200,
-        'body': json.dumps({'message': 'Stopped by kill switch'})
-      }
     
-    current_variable = event.get('variable', 'wspd') 
-    forecast_hour = event.get('forecast_hour', '01')
-    
-    current_timestamp = build_most_recent_file_stamp()
-    current_tiles_exist = await look_for_current_tiles()
-    if current_tiles_exist:
-      logger.info("Current tiles already exist - skipping")
-      return {'statusCode': 200, 'body': json.dumps({'status': 'skipped', 'reason': 'tiles_exist'})}
-    
-    files_exist = await check_for_current_weather_files()
-    if not files_exist:
-      logger.info("No weather files available")
-      return {'statusCode': 200, 'body': json.dumps({'status': 'skipped', 'reason': 'no_files'})}
-    
-    result = await process_single_variable(current_variable, forecast_hour, context)
-    
-    next_variable = get_next_variable(current_variable)
-    
-    if next_variable:
-      logger.info(f"Completed {current_variable}, triggering {next_variable}")
-      lambda_client.invoke(
-        FunctionName=context.function_name,
-        InvocationType='Event',
-        Payload=json.dumps({
-          'variable': next_variable,
-          'forecast_hour': forecast_hour
-        })
-      )
+async def handle_step_functions_action(event, context):
+  action = event.get('action')
+  override_timestamp = event.get('override_timestamp')
+  
+  match action:
+    case 'check_kill_switch':
+      kill_switch = db.lambdaControl.find_one({'action': 'stop'})
       
       return {
         'statusCode': 200,
-        'body': json.dumps({
-          'message': f'Completed {current_variable}, triggered {next_variable}',
-          'tiles_generated': result.get('tiles_generated', 0)
-        })
+        'kill_switch_active': bool(kill_switch)
       }
-    else:
+      
+    case 'check_existing_tiles':
+      tiles_exist = await look_for_current_tiles(override=override_timestamp)
+      
+      return {
+        'statusCode': 200,
+        'tiles_exist': tiles_exist
+      }
+      
+    case 'check_weather_files':
+      files_exist = await check_for_current_weather_files(override=override_timestamp)
+
+      return {
+        'statusCode': 200,
+        'files_exist': files_exist
+      }
+      
+    case 'process_variable':
+      variable = event.get('variable', 'wspd')
+      forecast_hour = event.get('forecast_hour', '01')
+      result = await process_single_variable(variable, forecast_hour, context)
+      
+      return {
+        'statusCode': 200,
+        'variable': variable,
+        'tiles_generated': result.get('tiles_generated', 0),
+        'status': 'success'
+      }
+      
+    case 'mark_tiles_complete':
+      current_timestamp = build_most_recent_file_stamp(override=override_timestamp)
       await mark_tiles_complete(current_timestamp)
-      logger.info(f"All variables completed for forecast hour {forecast_hour}")
       
       return {
         'statusCode': 200,
-        'body': json.dumps({
-          'message': f'All variables completed for forecast hour {forecast_hour}',
-          'total_tiles_generated': result.get('tiles_generated', 0)
-        })
+        'timestamp': current_timestamp,
+        'total_tiles_generated': event.get('total_tiles_generated', 0),
+        'status': 'marked_complete'
       }
-        
-  except Exception as error:
-    logger.error(f"Error in async_main: {error}")
-    raise
-
-def get_next_variable(current_variable):
-  """Get the next variable to process"""
-  try:
-    current_index = VARIABLES.index(current_variable)
-    return VARIABLES[current_index + 1] if current_index + 1 < len(VARIABLES) else None
-  except ValueError:
-    return VARIABLES[0]
+      
+    case _:
+      raise ValueError(f"Unknown action: {action}")
